@@ -1,0 +1,36 @@
+{
+  "name": "winston-pondhawk-watch",
+  "version": "1.0.0",
+  "description": "Winston transport for Pondhawk Watch Server",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "winston",
+    "transport",
+    "pondhawk",
+    "watch",
+    "logging"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "winston-transport": "^4.9.0"
+  },
+  "peerDependencies": {
+    "winston": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18",
+    "winston": "^3.17.0"
+  }
+}
