@@ -43,11 +43,11 @@ describe('WatchTransport', () => {
     const levelCases: [string, Level][] = [
       ['error', Level.Error],
       ['warn', Level.Warning],
-      ['info', Level.Info],
+      ['info', Level.Information],
       ['http', Level.Debug],
       ['verbose', Level.Debug],
       ['debug', Level.Debug],
-      ['silly', Level.Trace],
+      ['silly', Level.Verbose],
     ];
 
     it.each(levelCases)(
@@ -277,7 +277,7 @@ describe('WatchTransport', () => {
       await transport.flush();
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        'winston-fabrica-watch: Failed to send batch',
+        'winston-pondhawk-watch: Failed to send batch',
         expect.any(Error)
       );
     });

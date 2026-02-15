@@ -4,11 +4,12 @@ import { ulid } from '../src/ulid.js';
 
 describe('Level enum', () => {
   it('has correct numeric values', () => {
-    expect(Level.Trace).toBe(0);
+    expect(Level.Verbose).toBe(0);
     expect(Level.Debug).toBe(1);
-    expect(Level.Info).toBe(2);
+    expect(Level.Information).toBe(2);
     expect(Level.Warning).toBe(3);
     expect(Level.Error).toBe(4);
+    expect(Level.Fatal).toBe(5);
   });
 });
 
@@ -32,7 +33,7 @@ describe('LogEvent interface', () => {
       Tenant: '',
       Subject: '',
       Tag: '',
-      Level: Level.Info,
+      Level: Level.Information,
       Color: 0,
       Nesting: 0,
       Occurred: '2025-01-01T00:00:00.000Z',
@@ -47,7 +48,7 @@ describe('LogEvent interface', () => {
     expect(parsed.Category).toBe('TestApp');
     expect(parsed.CorrelationId).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAV');
     expect(parsed.Title).toBe('Test message');
-    expect(parsed.Level).toBe(Level.Info);
+    expect(parsed.Level).toBe(Level.Information);
     expect(parsed.Type).toBe(PayloadType.None);
     expect(parsed.Occurred).toBe('2025-01-01T00:00:00.000Z');
     // Verify PascalCase - no camelCase keys

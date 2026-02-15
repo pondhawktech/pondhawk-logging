@@ -14,11 +14,11 @@ export interface WatchTransportOptions extends Transport.TransportStreamOptions 
 const winstonToWatchLevel: Record<string, Level> = {
   error: Level.Error,
   warn: Level.Warning,
-  info: Level.Info,
+  info: Level.Information,
   http: Level.Debug,
   verbose: Level.Debug,
   debug: Level.Debug,
-  silly: Level.Trace,
+  silly: Level.Verbose,
 };
 
 export class WatchTransport extends Transport {
@@ -44,7 +44,7 @@ export class WatchTransport extends Transport {
   }
 
   log(info: Record<string, unknown>, callback: () => void): void {
-    const level = winstonToWatchLevel[info.level as string] ?? Level.Info;
+    const level = winstonToWatchLevel[info.level as string] ?? Level.Information;
 
     const {
       level: _level,
