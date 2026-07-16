@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Title>Pondhawk Logging</Title>
+    <Description>Serilog-based structured logging API (method tracing, object and typed-payload logging, [Sensitive] masking) plus the ILoggerSource acquisition abstraction. No sink or transport — providers such as Pondhawk.Logging.Watch build on this.</Description>
+    <Authors>Pond Hawk Technologies Inc.</Authors>
+    <Company>Pond Hawk Technologies Inc.</Company>
+    <Copyright>Pond Hawk Technologies Inc. (c) 2026</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/pondhawktech/pondhawk-logging</RepositoryUrl>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pondhawk.Logging.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Ulid" />
+  </ItemGroup>
+
+</Project>

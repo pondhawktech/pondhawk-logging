@@ -1,0 +1,53 @@
+name: Publish to NuGet.org
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build workflow run ID to promote (leave blank for latest successful build on main)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve build run ID
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.run_id }}" ]; then
+            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+          else
+            RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/build.yml/runs \
+              --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | .[0].id')
+            echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download packages from build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages
+          path: packages
+          run-id: ${{ steps.resolve.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Push to NuGet.org
+        run: |
+          for package in packages/*.nupkg; do
+            echo "Pushing $package"
+            dotnet nuget push "$package" \
+              --source https://api.nuget.org/v3/index.json \
+              --api-key ${{ secrets.NUGET_ORG_API_KEY }}
+          done

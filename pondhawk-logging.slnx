@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pondhawk.Logging/Pondhawk.Logging.csproj" />
+    <Project Path="src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj" />
+  </Folder>
+  <Folder Name="/build/">
+    <Project Path="build/Build.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Pondhawk.Logging.Tests/Pondhawk.Logging.Tests.csproj" />
+    <Project Path="test/Pondhawk.Logging.Watch.Tests/Pondhawk.Logging.Watch.Tests.csproj" />
+  </Folder>
+</Solution>
