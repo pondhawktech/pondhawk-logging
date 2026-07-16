@@ -1,4 +1,7 @@
-﻿using System.Net;
+﻿// Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
+// Licensed under the MIT License. See LICENSE in the project root for license information.
+
+using System.Net;
 using Pondhawk.Logging.Watch.Tests.Http;
 using Serilog.Events;
 using Shouldly;
