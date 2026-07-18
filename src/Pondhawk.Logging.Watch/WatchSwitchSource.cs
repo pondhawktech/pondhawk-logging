@@ -5,7 +5,7 @@ using System.Drawing;
 using System.Net.Http.Json;
 using System.Threading;
 using CommunityToolkit.Diagnostics;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging.Watch;
 
@@ -103,7 +103,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
                 {
                     Pattern = s.Pattern,
                     Tag = s.Tag,
-                    Level = s.Level > (int)LogEventLevel.Fatal ? LogEventLevel.Fatal : (LogEventLevel)s.Level,
+                    Level = s.Level > (int)LogLevel.Critical ? LogLevel.Critical : (LogLevel)s.Level,
                     Color = Color.FromArgb(s.Color)
                 }).ToList();
 
