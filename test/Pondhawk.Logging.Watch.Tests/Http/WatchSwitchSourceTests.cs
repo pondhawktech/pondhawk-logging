@@ -4,7 +4,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using Xunit;
 
@@ -69,7 +69,7 @@ public class WatchSwitchSourceTests
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "MyApp", Tag = "app", Level = (int)LogEventLevel.Debug, Color = System.Drawing.Color.Green.ToArgb() }
+            new SwitchDto { Pattern = "MyApp", Tag = "app", Level = (int)LogLevel.Debug, Color = System.Drawing.Color.Green.ToArgb() }
         ));
 
         var source = new WatchSwitchSource(CreateClient(handler), "my-domain");
@@ -86,7 +86,7 @@ public class WatchSwitchSourceTests
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "MyApp.Services", Tag = "svc", Level = (int)LogEventLevel.Debug, Color = System.Drawing.Color.Blue.ToArgb() }
+            new SwitchDto { Pattern = "MyApp.Services", Tag = "svc", Level = (int)LogLevel.Debug, Color = System.Drawing.Color.Blue.ToArgb() }
         ));
 
         var source = new WatchSwitchSource(CreateClient(handler), "test");
@@ -97,7 +97,7 @@ public class WatchSwitchSourceTests
         var sw = source.Lookup("MyApp.Services.Repository");
         sw.Pattern.ShouldBe("MyApp.Services");
         sw.Tag.ShouldBe("svc");
-        sw.Level.ShouldBe(LogEventLevel.Debug);
+        sw.Level.ShouldBe(LogLevel.Debug);
     }
 
     [Fact]
@@ -105,8 +105,8 @@ public class WatchSwitchSourceTests
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "MyApp", Level = (int)LogEventLevel.Warning, Color = 0 },
-            new SwitchDto { Pattern = "MyApp.Data", Level = (int)LogEventLevel.Debug, Color = 0 }
+            new SwitchDto { Pattern = "MyApp", Level = (int)LogLevel.Warning, Color = 0 },
+            new SwitchDto { Pattern = "MyApp.Data", Level = (int)LogLevel.Debug, Color = 0 }
         ));
 
         var source = new WatchSwitchSource(CreateClient(handler), "test");
@@ -114,12 +114,12 @@ public class WatchSwitchSourceTests
         await source.UpdateAsync();
 
         // Longest prefix match
-        source.Lookup("MyApp.Data.Sql").Level.ShouldBe(LogEventLevel.Debug);
-        source.Lookup("MyApp.Services").Level.ShouldBe(LogEventLevel.Warning);
+        source.Lookup("MyApp.Data.Sql").Level.ShouldBe(LogLevel.Debug);
+        source.Lookup("MyApp.Services").Level.ShouldBe(LogLevel.Warning);
     }
 
     [Fact]
-    public async Task UpdateAsync_LevelAboveFatal_ClampsToFatal()
+    public async Task UpdateAsync_LevelAboveCritical_ClampsToCritical()
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
@@ -130,8 +130,8 @@ public class WatchSwitchSourceTests
 
         await source.UpdateAsync();
 
-        // Level > 5 should clamp to Fatal
-        source.Lookup("HighLevel.Something").Level.ShouldBe(LogEventLevel.Fatal);
+        // Level > 5 should clamp to Critical
+        source.Lookup("HighLevel.Something").Level.ShouldBe(LogLevel.Critical);
     }
 
     [Fact]
@@ -194,20 +194,20 @@ public class WatchSwitchSourceTests
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "Existing", Level = (int)LogEventLevel.Debug, Color = 0 }
+            new SwitchDto { Pattern = "Existing", Level = (int)LogLevel.Debug, Color = 0 }
         ));
 
         var source = new WatchSwitchSource(CreateClient(handler), "test");
         await source.UpdateAsync();
 
-        source.Lookup("Existing.Sub").Level.ShouldBe(LogEventLevel.Debug);
+        source.Lookup("Existing.Sub").Level.ShouldBe(LogLevel.Debug);
 
         // Now fail
         handler.RespondWith(HttpStatusCode.InternalServerError);
         await source.UpdateAsync();
 
         // Existing switches should be unchanged
-        source.Lookup("Existing.Sub").Level.ShouldBe(LogEventLevel.Debug);
+        source.Lookup("Existing.Sub").Level.ShouldBe(LogLevel.Debug);
     }
 
     // --- Start ---
@@ -217,7 +217,7 @@ public class WatchSwitchSourceTests
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "App", Level = (int)LogEventLevel.Information, Color = 0 }
+            new SwitchDto { Pattern = "App", Level = (int)LogLevel.Information, Color = 0 }
         ));
 
         using var source = new WatchSwitchSource(CreateClient(handler), "test")
