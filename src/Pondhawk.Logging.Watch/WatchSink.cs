@@ -46,7 +46,7 @@ public sealed class WatchSink : ILogEventSink, IDisposable, IAsyncDisposable
     // Circuit breaker state
     private int _consecutiveFailures;
     private DateTime _circuitOpenUntil = DateTime.MinValue;
-    private readonly Lock _circuitLock = new();
+    private readonly object _circuitLock = new();
 
     // Critical event buffer
     private readonly ConcurrentQueue<LogEvent> _criticalBuffer = new();

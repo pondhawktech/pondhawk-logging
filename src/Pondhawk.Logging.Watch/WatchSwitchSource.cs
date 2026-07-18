@@ -27,7 +27,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     private readonly string _domain;
     private readonly TimeSpan _pollInterval;
     private readonly CancellationTokenSource _cts = new();
-    private readonly Lock _startLock = new();
+    private readonly object _startLock = new();
     private readonly ManualResetEventSlim _ready = new(false);
     private Task? _pollTask;
     private bool _started;
