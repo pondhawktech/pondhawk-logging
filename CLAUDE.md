@@ -31,7 +31,7 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
 
 ## Architecture
 
-Two packages: the sink-agnostic logging API, and a Watch Server provider that builds on it. Both are fully standalone — no dependency on other Pondhawk packages.
+Three packages: the logging API, a Watch Server provider, and a journald-optimized console — the providers build on the API. All are fully standalone — no dependency on other Pondhawk packages.
 
 ### Pondhawk.Logging — Structured Logging API
 
@@ -54,6 +54,10 @@ A ZLogger-based `Microsoft.Extensions.Logging` provider with Channel-based batch
 - **Switch-based level gating**: the filter matches a logger's category against the live switch table (`SwitchSource.Lookup`, longest prefix wins) and gates by the switch level. It is evaluated at `IsEnabled` — before the call site formats anything — so the whole logging API skips serialization for switch-dropped categories, with callers holding a plain `ILogger`.
 - **Switching**: Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching. `WatchSwitchSource` polls a Watch Server for switch configuration.
 - **LogEvent/LogEventBatch**: Event model serialized as MemoryPack for the wire; System.Text.Json (source-generated via `LogEventBatchContext`) available for debugging/testing.
+
+### Pondhawk.Logging.Console — journald-optimized console
+
+A ZLogger-based console for Linux production services. `AddJournaldConsole(this ILoggingBuilder)` wires a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>`, mapped from `LogLevel`) and the category, with no timestamp and no ANSI color — so journald parses the priority and stamps the time itself. Exceptions render inline (a single journald entry). Fixed at Warning via a provider-scoped filter. Depends only on ZLogger; does not reference `Pondhawk.Logging`.
 
 Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhawk.Logging.Watch/CLAUDE.md`.
 

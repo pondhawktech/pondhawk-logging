@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Pondhawk.Logging/Pondhawk.Logging.csproj" />
     <Project Path="src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj" />
+    <Project Path="src/Pondhawk.Logging.Console/Pondhawk.Logging.Console.csproj" />
   </Folder>
   <Folder Name="/build/">
     <Project Path="build/Build.csproj" />
@@ -9,5 +10,6 @@
   <Folder Name="/test/">
     <Project Path="test/Pondhawk.Logging.Tests/Pondhawk.Logging.Tests.csproj" />
     <Project Path="test/Pondhawk.Logging.Watch.Tests/Pondhawk.Logging.Watch.Tests.csproj" />
+    <Project Path="test/Pondhawk.Logging.Console.Tests/Pondhawk.Logging.Console.Tests.csproj" />
   </Folder>
 </Solution>

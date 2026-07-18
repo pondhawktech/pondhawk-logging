@@ -16,18 +16,20 @@
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.Watch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.Watch?label=Logging.Watch" alt="Pondhawk.Logging.Watch on NuGet" /></a>
 </p>
 
-Two packages, both `net8.0` and fully standalone (no dependency on other Pondhawk packages):
+Three packages, all `net8.0` and fully standalone (no dependency on other Pondhawk packages):
 
 | Package | Description |
 |---------|-------------|
 | [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport** — providers build on it. |
 | [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
+| [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), fixed at Warning for Linux production services. |
 
 ## Installation
 
 ```bash
 dotnet add package Pondhawk.Logging
-dotnet add package Pondhawk.Logging.Watch   # only if you deliver events to a Watch Server
+dotnet add package Pondhawk.Logging.Watch     # deliver events to a Watch Server
+dotnet add package Pondhawk.Logging.Console   # journald-optimized console for Linux production
 ```
 
 ## Pondhawk.Logging
@@ -69,13 +71,29 @@ builder.Logging.AddWatch("http://localhost:11000", "MyApp");
 
 `AddWatch` registers a ZLogger delivery processor and a level filter driven by the Watch server's switch table, so payloads for switch-dropped categories are never serialized. Events are batched over an unbounded Channel and sent as MemoryPack, with a circuit breaker for HTTP resilience. See the [package README](src/Pondhawk.Logging.Watch/README.md) for switching and the event model.
 
+## Pondhawk.Logging.Console
+
+A console optimized for **systemd-journald** on Linux production servers — fixed at Warning:
+
+```csharp
+using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.Console;
+
+builder.Logging.ClearProviders();
+builder.Logging.AddJournaldConsole();
+```
+
+Each line carries an sd-daemon priority prefix (`<3>` err, `<4>` warning, …) so `journalctl -p` filtering and level coloring work, with no timestamp or ANSI color (journald adds the time and stores raw text) and exceptions rendered inline as a single entry. See the [package README](src/Pondhawk.Logging.Console/README.md).
+
 ## Repository Layout
 
 ```
 src/Pondhawk.Logging/          The logging API on Microsoft.Extensions.Logging (net8.0)
 src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + switching (net8.0)
+src/Pondhawk.Logging.Console/  journald-optimized ZLogger console (net8.0)
 test/Pondhawk.Logging.Tests/
 test/Pondhawk.Logging.Watch.Tests/
+test/Pondhawk.Logging.Console.Tests/
 build/                         Cake (Frosting) build script
 .github/workflows/             build.yml (build/test/pack → GitHub Packages) + publish.yml (→ NuGet.org)
 ```
