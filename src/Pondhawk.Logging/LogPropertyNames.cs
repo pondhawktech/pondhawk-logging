@@ -4,9 +4,9 @@
 namespace Pondhawk.Logging;
 
 /// <summary>
-/// Well-known Serilog property names written by the logging API (<see cref="SerilogExtensions"/>,
-/// <see cref="MethodLogger"/>) and read by log sinks. Public because these constants form a contract
-/// shared across packages (e.g. the Watch sink reads them), not just an internal detail.
+/// Well-known property names written by the logging API (<see cref="LoggingExtensions"/>,
+/// <see cref="MethodLogger"/>) into the log state and read by log sinks. Public because these constants
+/// form a contract shared across packages (e.g. the Watch provider reads them), not just an internal detail.
 /// </summary>
 public static class LogPropertyNames
 {
