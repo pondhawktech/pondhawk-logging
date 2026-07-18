@@ -132,4 +132,127 @@ public class WatchLoggerProcessorTests
         e.Type.ShouldBe((int)PayloadType.Json);
         e.Payload.ShouldContain("W");
     }
+
+    [Fact]
+    public async Task Delivers_Exception_AsErrorTypeAndTextPayload()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("E").LogError(new InvalidOperationException("boom"), "failed");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.ErrorType.ShouldContain("InvalidOperationException");
+        e.Type.ShouldBe((int)PayloadType.Text);
+        e.Payload.ShouldContain("boom");
+    }
+
+    [Fact]
+    public async Task Delivers_MethodTrace_WithNesting()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        using (factory.CreateLogger("M").EnterMethod())
+        {
+        }
+
+        for (var i = 0; i < 100; i++)
+        {
+            lock (delivered)
+            {
+                if (delivered.Count > 0)
+                    break;
+            }
+
+            await Task.Delay(20);
+        }
+
+        lock (delivered)
+            delivered.ShouldContain(x => x.Nesting == 1);
+    }
+
+    [Fact]
+    public async Task CircuitBreaker_Opens_AndBuffersCriticalEvents_OnRepeatedFailure()
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.InternalServerError);
+
+        var processor = new WatchLoggerProcessor(
+            CreateClient(handler), new SwitchSource(), "D", batchSize: 1, flushInterval: TimeSpan.FromMilliseconds(10))
+        {
+            FailureThreshold = 2,
+        };
+        var factory = LoggerFactory.Create(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Trace);
+            b.AddZLoggerLogProcessor((_, _) => processor);
+        });
+        var logger = factory.CreateLogger("X");
+
+        // Warning+ events are the ones the sink buffers as critical during an outage.
+        for (var i = 0; i < 5; i++)
+            logger.LogWarning("w{Index}", i);
+
+        for (var i = 0; i < 300 && !processor.IsCircuitOpen; i++)
+            await Task.Delay(10);
+
+        processor.IsCircuitOpen.ShouldBeTrue();
+        processor.CriticalBufferCount.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task CircuitBreaker_Recovers_AndFlushesBufferedEvents_WhenServerReturns()
+    {
+        var handler = new MockHttpHandler();
+        var delivered = new List<LogEvent>();
+        var failing = new[] { true };
+
+        handler.SetHandler(async (req, ct) =>
+        {
+            var batch = await LogEventBatchSerializer.FromStream(await req.Content.ReadAsStreamAsync(ct));
+            if (failing[0])
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            if (batch is not null)
+            {
+                lock (delivered)
+                    delivered.AddRange(batch.Events);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        var processor = new WatchLoggerProcessor(
+            CreateClient(handler), new SwitchSource(), "D", batchSize: 1, flushInterval: TimeSpan.FromMilliseconds(10))
+        {
+            FailureThreshold = 2,
+            BaseRetryDelay = TimeSpan.FromMilliseconds(50),
+            MaxRetryDelay = TimeSpan.FromMilliseconds(100),
+        };
+        var factory = LoggerFactory.Create(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Trace);
+            b.AddZLoggerLogProcessor((_, _) => processor);
+        });
+        var logger = factory.CreateLogger("X");
+
+        logger.LogWarning("buffered-1");
+        logger.LogWarning("buffered-2");
+
+        for (var i = 0; i < 300 && !processor.IsCircuitOpen; i++)
+            await Task.Delay(10);
+        processor.IsCircuitOpen.ShouldBeTrue();
+
+        // Server recovers; keep logging so a send is attempted once the retry window elapses, which
+        // flushes the buffered critical events into the next successful batch.
+        failing[0] = false;
+        for (var i = 0; i < 400 && delivered.Count == 0; i++)
+        {
+            logger.LogWarning("recover-{Index}", i);
+            await Task.Delay(15);
+        }
+
+        delivered.ShouldNotBeEmpty();
+    }
 }

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace Pondhawk.Logging.Watch;
 
 /// <summary>
-/// Configuration options for <see cref="WatchLoggingBuilderExtensions.AddWatch"/>.
+/// Configuration options for <see cref="WatchLoggingBuilderExtensions"/>'s <c>AddWatch</c>.
 /// </summary>
 public class WatchSinkOptions
 {

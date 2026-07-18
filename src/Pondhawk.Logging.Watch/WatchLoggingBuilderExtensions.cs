@@ -45,6 +45,22 @@ public static class WatchLoggingBuilderExtensions
         switches.WhenNotMatched(options.DefaultLevel, options.DefaultColor);
         switches.Start();
 
+        // The processor owns the HTTP client and switch source created here for it, disposing them on shutdown.
+        return builder.AddWatch(httpClient, switches, options, ownsDependencies: true);
+    }
+
+    /// <summary>
+    /// Wires the Watch filter and ZLogger processor onto the builder from a supplied HTTP client and switch
+    /// source. The public <see cref="AddWatch(ILoggingBuilder, string, string, Action{WatchSinkOptions})"/>
+    /// creates those; this overload lets tests inject controlled ones.
+    /// </summary>
+    internal static ILoggingBuilder AddWatch(
+        this ILoggingBuilder builder,
+        HttpClient httpClient,
+        SwitchSource switches,
+        WatchSinkOptions options,
+        bool ownsDependencies)
+    {
         // Open the MEL floor so the switch filter is the sole gate. ZLogger's own IsEnabled is always
         // true, so the composite logger's IsEnabled — the one the call site checks before formatting —
         // reflects this filter, giving switch-dropped categories a zero-work short-circuit.
@@ -52,8 +68,6 @@ public static class WatchLoggingBuilderExtensions
         builder.AddFilter((category, level) =>
             string.IsNullOrWhiteSpace(category) || level >= switches.Lookup(category).Level);
 
-        // The ZLogger provider captures entries; the Watch processor delivers them. The processor owns the
-        // HTTP client and switch source created here for it, disposing them on shutdown.
         builder.AddZLoggerLogProcessor((_, _) =>
             new WatchLoggerProcessor(
                 httpClient,
@@ -61,7 +75,7 @@ public static class WatchLoggingBuilderExtensions
                 options.Domain,
                 options.BatchSize,
                 options.FlushInterval,
-                ownsDependencies: true));
+                ownsDependencies));
 
         return builder;
     }
