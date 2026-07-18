@@ -1,51 +1,61 @@
 # Pondhawk.Logging
 
-> A standalone .NET structured logging API by Pond Hawk Technologies built on Serilog (method tracing, object/typed-payload logging, [Sensitive] masking) plus an `ILoggerSource` acquisition seam — and a Watch Server provider (Serilog sink, Channel batching, dynamic switch-based level control). Two packages, both target net10.0, no dependency on other Pondhawk packages.
+> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) and a journald-optimized console. Three packages, all target net8.0, no dependency on other Pondhawk packages.
 
 ## Packages
 
-### Pondhawk.Logging — logging API + ILoggerSource
+### Pondhawk.Logging — logging API
 
 Install: `dotnet add package Pondhawk.Logging`
 
 **Key types (`Pondhawk.Logging` namespace):**
-- `SerilogExtensions` — extensions on `Serilog.ILogger`:
+- `LoggingExtensions` — extensions on `Microsoft.Extensions.Logging.ILogger`:
   - `EnterMethod()` → disposable method-trace scope (auto entry/exit + elapsed)
   - `Inspect(name, value)` → logs `"{Name} = {Value}"` at Debug
   - `LogObject(value)` / `LogObject(title, value)` → serialize an object to a JSON payload
   - `LogJson` / `LogSql` / `LogXml` / `LogYaml` / `LogText(title, content)` → typed payloads with syntax-highlight hints
-- `ILoggerSource` — inject to obtain category-scoped loggers: `CreateLogger<T>()` / `CreateLogger(Type)` / `CreateLogger(string)`, all returning `Serilog.ILogger`
-- `SerilogLoggerSource` — the canonical default (`root.ForContext(SourceContext, category)`)
 - `[Sensitive]` — masks a property when an object is serialized
-- `CorrelationManager`, `PayloadType`, `JsonObjectSerializer`, `LogPropertyNames` (the `Pondhawk.*` property-name contract sinks read)
+- `CorrelationManager`, `PayloadType`, `JsonObjectSerializer`, `LogPropertyNames` (the `Pondhawk.*` log-state property-name contract sinks read)
+
+Loggers come from the standard `ILoggerFactory` (`CreateLogger<T>()` / `CreateLogger(Type)` / `CreateLogger(string)`), returning `Microsoft.Extensions.Logging.ILogger`.
 
 ```csharp
+using Microsoft.Extensions.Logging;
 using Pondhawk.Logging;
 
-using var _ = logger.EnterMethod();            // ILogger is Serilog.ILogger
+using var _ = logger.EnterMethod();
 logger.Inspect(nameof(orderId), orderId);
 logger.LogObject("order", order);
 logger.LogSql("query", sqlText);
 ```
-**No sink or transport** — this package is Serilog-only; a provider (e.g. Pondhawk.Logging.Watch) supplies the sink and a smarter `ILoggerSource`, or an app implements its own.
+**No sink or transport** — a provider (e.g. Pondhawk.Logging.Watch) supplies delivery, or an app uses any Microsoft.Extensions.Logging provider.
 
 ### Pondhawk.Logging.Watch — Watch Server provider
 
 Install: `dotnet add package Pondhawk.Logging.Watch`
 ```csharp
+using Microsoft.Extensions.Logging;
 using Pondhawk.Logging.Watch;
-using Serilog;
 
-Log.Logger = new LoggerConfiguration()
-    .UseWatch("http://localhost:11000", "MyApp")   // Watch Server controls levels via switches
-    .CreateLogger();
+builder.Logging.AddWatch("http://localhost:11000", "MyApp");   // Watch Server controls levels via switches
 ```
 **Key types (`Pondhawk.Logging.Watch` namespace):**
-- `WatchSinkExtensions` — `UseWatch(url, domain)` (primary; sets `MinimumLevel.Verbose()`) and `WriteTo.Watch(url, domain)`; out-param overloads (`UseWatch(..., out SwitchSource)`) expose the switch source
-- `WatchSink` — `ILogEventSink` with unbounded `Channel<T>` batching and a circuit breaker; events serialized as MemoryPack+Brotli
-- `WatchLoggerSource` — switch-aware `ILoggerSource` (skips payload serialization for switch-dropped categories)
+- `WatchLoggingBuilderExtensions` — `AddWatch(this ILoggingBuilder, serverUrl, domain, configure?)`: registers a level filter driven by the switch table and a ZLogger delivery processor
+- `WatchLoggerProcessor` — a ZLogger `IAsyncLogProcessor` with unbounded `Channel<T>` batching and a circuit breaker; events serialized as MemoryPack
 - `SwitchSource` / `SwitchDef` / `WatchSwitchSource` — dynamic per-category level control (longest-prefix match); `WatchSwitchSource` polls a Watch Server
 - `LogEvent` / `LogEventBatch` — the wire event model
+
+### Pondhawk.Logging.Console — journald-optimized console
+
+Install: `dotnet add package Pondhawk.Logging.Console`
+```csharp
+using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.Console;
+
+builder.Logging.AddJournaldConsole();   // fixed at Warning; for Linux production under systemd
+```
+**Key types (`Pondhawk.Logging.Console` namespace):**
+- `JournaldConsoleLoggingBuilderExtensions` — `AddJournaldConsole(this ILoggingBuilder)`: a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>` mapped from `LogLevel`) and category, with no timestamp and no ANSI color; exceptions render inline (single journald entry). Fixed at Warning.
 
 ## Docs
 - [README.md](README.md) — overview and examples
@@ -53,7 +63,7 @@ Log.Logger = new LoggerConfiguration()
 - [CLAUDE.md](CLAUDE.md) plus per-project `src/*/CLAUDE.md` — repository/build guidance
 
 ## Technical details
-- Both packages target `net10.0`
+- All three packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch and Console providers use ZLogger)
 - XML documentation ships inside the NuGet packages (100% public-API coverage; consumers get IntelliSense)
 - `Pondhawk.Logging.Watch` is consumed by the pondhawk/watch-server client
 - MIT licensed; extracted from the pondhawktech/tools monorepo

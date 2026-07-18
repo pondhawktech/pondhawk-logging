@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using Xunit;
 
@@ -26,7 +26,7 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.DefaultSwitch.Level.ShouldBe(LogEventLevel.Error);
+        source.DefaultSwitch.Level.ShouldBe(LogLevel.Error);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.GetDebugSwitch().Level.ShouldBe(LogEventLevel.Debug);
+        source.GetDebugSwitch().Level.ShouldBe(LogLevel.Debug);
     }
 
     // --- WhenNotMatched ---
@@ -44,9 +44,9 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.WhenNotMatched(LogEventLevel.Information);
+        source.WhenNotMatched(LogLevel.Information);
 
-        source.DefaultSwitch.Level.ShouldBe(LogEventLevel.Information);
+        source.DefaultSwitch.Level.ShouldBe(LogLevel.Information);
     }
 
     [Fact]
@@ -54,9 +54,9 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.WhenNotMatched(LogEventLevel.Warning, Color.Yellow);
+        source.WhenNotMatched(LogLevel.Warning, Color.Yellow);
 
-        source.DefaultSwitch.Level.ShouldBe(LogEventLevel.Warning);
+        source.DefaultSwitch.Level.ShouldBe(LogLevel.Warning);
         source.DefaultSwitch.Color.ShouldBe(Color.Yellow);
     }
 
@@ -65,7 +65,7 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        var result = source.WhenNotMatched(LogEventLevel.Debug);
+        var result = source.WhenNotMatched(LogLevel.Debug);
 
         result.ShouldBeSameAs(source);
     }
@@ -77,10 +77,10 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.WhenMatched("MyApp", LogEventLevel.Debug, Color.Green);
+        source.WhenMatched("MyApp", LogLevel.Debug, Color.Green);
 
         var sw = source.Lookup("MyApp.Services.Repo");
-        sw.Level.ShouldBe(LogEventLevel.Debug);
+        sw.Level.ShouldBe(LogLevel.Debug);
         sw.Color.ShouldBe(Color.Green);
     }
 
@@ -89,7 +89,7 @@ public class SwitchSourceTests
     {
         var source = new SwitchSource();
 
-        source.WhenMatched("MyApp", "CustomTag", LogEventLevel.Debug, Color.Green);
+        source.WhenMatched("MyApp", "CustomTag", LogLevel.Debug, Color.Green);
 
         var sw = source.Lookup("MyApp.Services");
         sw.Tag.ShouldBe("CustomTag");
@@ -111,11 +111,11 @@ public class SwitchSourceTests
     public void Lookup_ExactMatch_ReturnsSwitch()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp.Services", LogEventLevel.Debug, Color.Red);
+        source.WhenMatched("MyApp.Services", LogLevel.Debug, Color.Red);
 
         var sw = source.Lookup("MyApp.Services");
 
-        sw.Level.ShouldBe(LogEventLevel.Debug);
+        sw.Level.ShouldBe(LogLevel.Debug);
         sw.Pattern.ShouldBe("MyApp.Services");
     }
 
@@ -123,18 +123,18 @@ public class SwitchSourceTests
     public void Lookup_PrefixMatch_ReturnsSwitch()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp", LogEventLevel.Information, Color.Blue);
+        source.WhenMatched("MyApp", LogLevel.Information, Color.Blue);
 
         var sw = source.Lookup("MyApp.Services.Repo");
 
-        sw.Level.ShouldBe(LogEventLevel.Information);
+        sw.Level.ShouldBe(LogLevel.Information);
     }
 
     [Fact]
     public void Lookup_NoMatch_ReturnsDefaultSwitch()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp", LogEventLevel.Debug, Color.Red);
+        source.WhenMatched("MyApp", LogLevel.Debug, Color.Red);
 
         var sw = source.Lookup("OtherApp.Services");
 
@@ -145,12 +145,12 @@ public class SwitchSourceTests
     public void Lookup_LongestPrefixWins()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp", LogEventLevel.Warning, Color.Yellow);
-        source.WhenMatched("MyApp.Services", LogEventLevel.Debug, Color.Green);
+        source.WhenMatched("MyApp", LogLevel.Warning, Color.Yellow);
+        source.WhenMatched("MyApp.Services", LogLevel.Debug, Color.Green);
 
         var sw = source.Lookup("MyApp.Services.Repo");
 
-        sw.Level.ShouldBe(LogEventLevel.Debug);
+        sw.Level.ShouldBe(LogLevel.Debug);
         sw.Pattern.ShouldBe("MyApp.Services");
     }
 
@@ -174,7 +174,7 @@ public class SwitchSourceTests
     public void LookupColor_MatchingPattern_ReturnsColor()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp", LogEventLevel.Debug, Color.Magenta);
+        source.WhenMatched("MyApp", LogLevel.Debug, Color.Magenta);
 
         var color = source.LookupColor("MyApp.Something");
 
@@ -197,16 +197,16 @@ public class SwitchSourceTests
     public void Update_ReplacesAllSwitches()
     {
         var source = new SwitchSource();
-        source.WhenMatched("OldPattern", LogEventLevel.Debug, Color.Red);
+        source.WhenMatched("OldPattern", LogLevel.Debug, Color.Red);
 
         var newDefs = new List<SwitchDef>
         {
-            new() { Pattern = "NewPattern", Level = LogEventLevel.Warning, Color = Color.Blue }
+            new() { Pattern = "NewPattern", Level = LogLevel.Warning, Color = Color.Blue }
         };
 
         source.Update(newDefs);
 
-        source.Lookup("NewPattern.Sub").Level.ShouldBe(LogEventLevel.Warning);
+        source.Lookup("NewPattern.Sub").Level.ShouldBe(LogLevel.Warning);
         source.Lookup("OldPattern.Sub").ShouldBeSameAs(source.DefaultSwitch);
     }
 
@@ -218,7 +218,7 @@ public class SwitchSourceTests
 
         source.Update(new List<SwitchDef>
         {
-            new() { Pattern = "Test", Level = LogEventLevel.Debug, Color = Color.Red }
+            new() { Pattern = "Test", Level = LogLevel.Debug, Color = Color.Red }
         });
 
         source.Version.ShouldBe(1);
@@ -240,7 +240,7 @@ public class SwitchSourceTests
     public void Update_EmptyList_ClearsAllSwitches()
     {
         var source = new SwitchSource();
-        source.WhenMatched("MyApp", LogEventLevel.Debug, Color.Red);
+        source.WhenMatched("MyApp", LogLevel.Debug, Color.Red);
 
         source.Update(new List<SwitchDef>());
 

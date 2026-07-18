@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging.Watch;
 
@@ -37,7 +37,7 @@ public class Switch
     /// <summary>
     /// Gets the minimum log level.
     /// </summary>
-    public LogEventLevel Level { get; init; } = LogEventLevel.Error;
+    public LogLevel Level { get; init; } = LogLevel.Error;
 
     /// <summary>
     /// Gets the color for log events.

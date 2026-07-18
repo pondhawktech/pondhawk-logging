@@ -6,7 +6,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using CommunityToolkit.Diagnostics;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 // ReSharper disable MemberCanBePrivate.Global
 // ReSharper disable UnusedMethodReturnValue.Global
@@ -42,12 +42,12 @@ public class SwitchSource : IDisposable
     /// <summary>
     /// Gets or sets the default switch used when no pattern matches.
     /// </summary>
-    public Switch DefaultSwitch { get; set; } = new Switch { Level = LogEventLevel.Error, Color = Color.LightGray };
+    public Switch DefaultSwitch { get; set; } = new Switch { Level = LogLevel.Error, Color = Color.LightGray };
 
     /// <summary>
     /// Gets or sets the debug switch for explicit debug logging.
     /// </summary>
-    public Switch DebugSwitch { get; set; } = new Switch { Level = LogEventLevel.Debug, Color = Color.PapayaWhip };
+    public Switch DebugSwitch { get; set; } = new Switch { Level = LogLevel.Debug, Color = Color.PapayaWhip };
 
     /// <summary>
     /// Gets the ordered list of patterns (longest first).
@@ -81,7 +81,7 @@ public class SwitchSource : IDisposable
     /// </summary>
     /// <param name="level">The minimum log level for unmatched categories.</param>
     /// <returns>This source for fluent chaining.</returns>
-    public SwitchSource WhenNotMatched(LogEventLevel level)
+    public SwitchSource WhenNotMatched(LogLevel level)
     {
         var sw = new Switch { Level = level, Color = Color.LightGray };
         DefaultSwitch = sw;
@@ -94,7 +94,7 @@ public class SwitchSource : IDisposable
     /// <param name="level">The minimum log level for unmatched categories.</param>
     /// <param name="color">The color for unmatched categories.</param>
     /// <returns>This source for fluent chaining.</returns>
-    public SwitchSource WhenNotMatched(LogEventLevel level, Color color)
+    public SwitchSource WhenNotMatched(LogLevel level, Color color)
     {
         var sw = new Switch { Level = level, Color = color };
         DefaultSwitch = sw;
@@ -108,7 +108,7 @@ public class SwitchSource : IDisposable
     /// <param name="level">The minimum log level.</param>
     /// <param name="color">The color for matched categories.</param>
     /// <returns>This source for fluent chaining.</returns>
-    public SwitchSource WhenMatched(string pattern, LogEventLevel level, Color color)
+    public SwitchSource WhenMatched(string pattern, LogLevel level, Color color)
     {
         return WhenMatched(pattern, string.Empty, level, color);
     }
@@ -121,7 +121,7 @@ public class SwitchSource : IDisposable
     /// <param name="level">The minimum log level.</param>
     /// <param name="color">The color for matched categories.</param>
     /// <returns>This source for fluent chaining.</returns>
-    public SwitchSource WhenMatched(string pattern, string tag, LogEventLevel level, Color color)
+    public SwitchSource WhenMatched(string pattern, string tag, LogLevel level, Color color)
     {
         var switches = Switches.Select(p => new SwitchDef
         {

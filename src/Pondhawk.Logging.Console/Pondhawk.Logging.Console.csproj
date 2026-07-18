@@ -4,8 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <Title>Pondhawk Logging</Title>
-    <Description>Structured logging API (method tracing, object and typed-payload logging, [Sensitive] masking) built on Microsoft.Extensions.Logging. No sink or transport — providers such as Pondhawk.Logging.Watch build on this.</Description>
+    <Title>Pondhawk Logging — journald Console</Title>
+    <Description>A ZLogger-based Microsoft.Extensions.Logging console optimized for systemd-journald: sd-daemon priority prefixes (&lt;N&gt;), no timestamp, and no ANSI color. Fixed at Warning for Linux production services that surface only warnings and errors.</Description>
     <Authors>Pond Hawk Technologies Inc.</Authors>
     <Company>Pond Hawk Technologies Inc.</Company>
     <Copyright>Pond Hawk Technologies Inc. (c) 2026</Copyright>
@@ -20,12 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Pondhawk.Logging.Tests" />
+    <InternalsVisibleTo Include="Pondhawk.Logging.Console.Tests" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Ulid" />
+    <PackageReference Include="ZLogger" />
   </ItemGroup>
 
 </Project>

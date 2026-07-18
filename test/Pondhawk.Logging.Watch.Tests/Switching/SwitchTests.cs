@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using Xunit;
 
@@ -17,7 +17,7 @@ public class SwitchTests
         var sw = Switch.Create();
 
         sw.Pattern.ShouldBe("");
-        sw.Level.ShouldBe(LogEventLevel.Error);
+        sw.Level.ShouldBe(LogLevel.Error);
         sw.Color.ShouldBe(Color.White);
         sw.Tag.ShouldBe("");
     }
@@ -33,9 +33,9 @@ public class SwitchTests
     [Fact]
     public void Initializer_SetsLevel()
     {
-        var sw = new Switch { Level = LogEventLevel.Debug };
+        var sw = new Switch { Level = LogLevel.Debug };
 
-        sw.Level.ShouldBe(LogEventLevel.Debug);
+        sw.Level.ShouldBe(LogLevel.Debug);
     }
 
     [Fact]
@@ -60,13 +60,13 @@ public class SwitchTests
         var sw = new Switch
         {
             Pattern = "MyApp",
-            Level = LogEventLevel.Warning,
+            Level = LogLevel.Warning,
             Color = Color.Blue,
             Tag = "Test"
         };
 
         sw.Pattern.ShouldBe("MyApp");
-        sw.Level.ShouldBe(LogEventLevel.Warning);
+        sw.Level.ShouldBe(LogLevel.Warning);
         sw.Color.ShouldBe(Color.Blue);
         sw.Tag.ShouldBe("Test");
     }

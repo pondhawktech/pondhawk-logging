@@ -2,14 +2,14 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging.Watch;
 
 /// <summary>
-/// Configuration options for the <see cref="WatchSinkExtensions.Watch(Serilog.Configuration.LoggerSinkConfiguration, string, string)"/> convenience methods.
+/// Configuration options for <see cref="WatchLoggingBuilderExtensions"/>'s <c>AddWatch</c>.
 /// </summary>
-public class WatchSinkOptions
+public class WatchOptions
 {
     /// <summary>
     /// Gets or sets the Watch Server URL. Default is "http://localhost:11000".
@@ -24,7 +24,7 @@ public class WatchSinkOptions
     /// <summary>
     /// Gets or sets the default log level when no switch pattern matches. Default is Warning.
     /// </summary>
-    public LogEventLevel DefaultLevel { get; set; } = LogEventLevel.Warning;
+    public LogLevel DefaultLevel { get; set; } = LogLevel.Warning;
 
     /// <summary>
     /// Gets or sets the default color when no switch pattern matches. Default is LightGray.

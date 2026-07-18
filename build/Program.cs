@@ -33,7 +33,8 @@ public class BuildContext : FrostingContext
     public string[] SourceProjects { get; } =
     [
         "src/Pondhawk.Logging/Pondhawk.Logging.csproj",
-        "src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj"
+        "src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj",
+        "src/Pondhawk.Logging.Console/Pondhawk.Logging.Console.csproj"
     ];
 
     public BuildContext(ICakeContext context) : base(context)
