@@ -2,13 +2,16 @@
 
 ## Overview
 
-Pondhawk.Logging is the Serilog-based **structured logging API** plus the **`ILoggerSource`**
-acquisition abstraction. It provides method tracing, object serialization, typed payloads, and
-`[Sensitive]` masking as extensions on `Serilog.ILogger`. It has **no sink or transport** — provider
-packages such as [`Pondhawk.Logging.Watch`](../Pondhawk.Logging.Watch/CLAUDE.md) build on it.
+Pondhawk.Logging is the **structured logging API** for Pondhawk, built on
+`Microsoft.Extensions.Logging`. It provides method tracing, object serialization, typed payloads, and
+`[Sensitive]` masking as extensions on the standard `ILogger`. It adds no logger type of its own — code
+logs through the standard `ILogger`, so an app can drop this package and fall back to plain
+`Microsoft.Extensions.Logging` with a configuration change and no code edits. It has **no sink or
+transport** — provider packages such as [`Pondhawk.Logging.Watch`](../Pondhawk.Logging.Watch/CLAUDE.md)
+build on it.
 
-Targets `net10.0` (single target — no conditional compilation). Fully standalone — no dependency on
-Pondhawk.Core. Namespace: `Pondhawk.Logging`.
+Targets `net8.0` (single target — no conditional compilation). Fully standalone — no dependency on other
+Pondhawk packages. Namespace: `Pondhawk.Logging`.
 
 ---
 
@@ -23,13 +26,14 @@ Most methods should begin with `EnterMethod()`. Only the simplest methods (one-l
 skip this.
 
 ```csharp
+using Microsoft.Extensions.Logging;
 using Pondhawk.Logging;
 
 public class OrderService
 {
     private readonly ILogger _logger;
 
-    public OrderService(ILoggerSource loggers)
+    public OrderService(ILoggerFactory loggers)
     {
         _logger = loggers.CreateLogger<OrderService>();
     }
@@ -38,7 +42,7 @@ public class OrderService
     {
         using var _ = _logger.EnterMethod();
 
-        _logger.Debug("Loading order from database");
+        _logger.LogDebug("Loading order from database");
         var order = await _repository.GetOrderAsync(orderId);
         _logger.LogObject(order);
 
@@ -47,7 +51,7 @@ public class OrderService
 }
 ```
 
-- Obtain a logger by injecting an `ILoggerSource` and calling `CreateLogger<T>()`; it sets `SourceContext` to the concise type name. `Log.ForContext<T>()` is the fallback.
+- Obtain a logger by injecting an `ILoggerFactory` and calling `CreateLogger<T>()`; the category is the concise type name.
 - Use discard `_` for the `EnterMethod()` return value
 - Creates a collapsible hierarchy in log viewers with automatic timing
 
@@ -65,10 +69,10 @@ if (!order.IsValid)
     return null;
 
 // GOOD - Log visible in production, serves as documentation
-logger.Debug("Validating order before processing");
+logger.LogDebug("Validating order before processing");
 if (!order.IsValid)
 {
-    logger.Debug("Order validation failed");
+    logger.LogDebug("Order validation failed");
     return null;
 }
 ```
@@ -126,7 +130,7 @@ logger.LogObject(credentials);
 Include relevant IDs, states, and values.
 
 ```csharp
-logger.Debug("Processing payment for Order {OrderId}, Amount {Amount}, Customer {CustomerId}",
+logger.LogDebug("Processing payment for Order {OrderId}, Amount {Amount}, Customer {CustomerId}",
     order.Id, order.Total, order.CustomerId);
 ```
 
@@ -135,7 +139,7 @@ logger.Debug("Processing payment for Order {OrderId}, Amount {Amount}, Customer 
 ```csharp
 catch (Exception ex)
 {
-    logger.Error(ex, "Failed to process order {OrderId} for customer {CustomerId} with amount {Amount}",
+    logger.LogError(ex, "Failed to process order {OrderId} for customer {CustomerId} with amount {Amount}",
         orderId, customerId, amount);
     throw;
 }
@@ -146,8 +150,8 @@ catch (Exception ex)
 | Principle | Practice |
 |-----------|----------|
 | Start methods | `using var _ = _logger.EnterMethod();` |
-| Get a logger | Inject `ILoggerSource loggers`; `_logger = loggers.CreateLogger<MyType>();` |
-| Replace comments | `logger.Debug("Explanation of what's happening");` |
+| Get a logger | Inject `ILoggerFactory loggers`; `_logger = loggers.CreateLogger<MyType>();` |
+| Replace comments | `logger.LogDebug("Explanation of what's happening");` |
 | Log values | `logger.Inspect("x", x);` |
 | Log complex objects | `logger.LogObject(dto);` |
 | Mark sensitive data | `[Sensitive]` attribute on properties |
@@ -156,34 +160,21 @@ catch (Exception ex)
 
 ---
 
-## ILoggerSource / SerilogLoggerSource
+## Acquiring loggers
 
-`ILoggerSource` is the single seam an application injects to obtain category-scoped loggers,
-independent of any provider:
+Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type. Inject
+`ILoggerFactory` and create a category logger by type or name:
 
 ```csharp
-public interface ILoggerSource
-{
-    ILogger CreateLogger<T>();          // category = concise full name of T
-    ILogger CreateLogger(Type source);  // category = concise full name of the type
-    ILogger CreateLogger(string category);
-}
+private readonly ILogger _logger;
+public MyType(ILoggerFactory loggers) => _logger = loggers.CreateLogger<MyType>();
+// or loggers.CreateLogger("My.Category")
 ```
 
-All three return `Serilog.ILogger`. The method is named `CreateLogger`, not `For`, to satisfy analyzer
-rule CA1716.
-
-- **`SerilogLoggerSource`** — the canonical-Serilog default. Each logger is the root logger with its
-  `SourceContext` set to the category (`root.ForContext(SourceContext, category)`). The logging API
-  works identically; `IsEnabled`-based guards fall back to the configured Serilog minimum level.
-- **A provider supplies a smarter source.** `Pondhawk.Logging.Watch` provides a switch-aware
-  `WatchLoggerSource`: because the API gates on `ILogger.IsEnabled`, loggers from that source skip
-  serialization for switch-dropped categories with no change to calling code.
-- **An app can implement its own `ILoggerSource`** and drop the Watch package entirely — handlers that
-  depend only on `ILoggerSource`/`ILogger` are unchanged.
-
-Prefer injecting an `ILoggerSource` over `Log.ForContext<T>()`; the latter is the fallback and is not
-switch-aware.
+The returned `ILogger` is the standard `Microsoft.Extensions.Logging.ILogger`. Because the whole API
+gates on `ILogger.IsEnabled`, a provider that makes `IsEnabled` switch-aware makes the entire API skip
+work for switch-dropped categories with no change to calling code — `Pondhawk.Logging.Watch` does this by
+registering a level filter driven by the Watch server's switch table.
 
 ---
 
@@ -192,19 +183,8 @@ switch-aware.
 ### Method Tracing
 
 ```csharp
-using var scope = logger.EnterMethod();   // extension on Serilog ILogger
+using var scope = logger.EnterMethod();   // extension on ILogger
 // Logs entry with Nesting=+1, exit with Nesting=-1 and timing
-```
-
-### Logger Creation
-
-```csharp
-// Idiomatic: inject ILoggerSource; sets SourceContext to the concise type name.
-private readonly ILogger _logger;
-public MyType(ILoggerSource loggers) => _logger = loggers.CreateLogger<MyType>();
-
-// Fallback: standard Serilog acquisition.
-private readonly ILogger _logger = Log.ForContext<MyType>();
 ```
 
 ### Typed Payloads
@@ -224,8 +204,8 @@ logger.Inspect("name", value);      // Logs "name = value" at Debug
 
 ## Property-Name Contract
 
-`LogPropertyNames` (public) defines the well-known Serilog property names the API writes and sinks read.
-All are prefixed `Pondhawk.`:
+`LogPropertyNames` (public) defines the well-known log-state property names the API attaches and sinks
+read. All are prefixed `Pondhawk.`:
 
 - `Pondhawk.Nesting` — method-tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of the `PayloadType` enum
@@ -237,10 +217,9 @@ All are prefixed `Pondhawk.`:
 
 ```
 src/Pondhawk.Logging/
-  SerilogExtensions.cs                  # EnterMethod, Inspect, LogObject, LogJson, etc.
-  MethodLogger.cs                       # ILogger wrapper behind EnterMethod
-  ILoggerSource.cs                      # Logger-acquisition abstraction
-  SerilogLoggerSource.cs                # Canonical-Serilog default ILoggerSource
+  LoggingExtensions.cs                  # EnterMethod, Inspect, LogObject, LogJson, etc.
+  MethodLogger.cs                       # ILogger decorator behind EnterMethod
+  LogState.cs                           # log state the API attaches (title + control properties)
   LogPropertyNames.cs                   # Public Pondhawk.* property-name contract
   PayloadType.cs                        # None, Json, Sql, Xml, Text, Yaml
   SensitiveAttribute.cs                 # [Sensitive] for masking properties
@@ -266,4 +245,4 @@ src/Pondhawk.Logging/
 - Do use structured logging: `"User {UserId}", userId`
 - Do use `EnterMethod()` for method-level tracing
 - Do use appropriate `PayloadType` for syntax highlighting
-- Prefer an injected `ILoggerSource` over `Log.ForContext<T>()`
+- Acquire loggers from an injected `ILoggerFactory`

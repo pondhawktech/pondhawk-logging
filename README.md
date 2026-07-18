@@ -5,23 +5,23 @@
 <h1 align="center">Pondhawk.Logging</h1>
 
 <p align="center">
-  A Serilog-based structured logging API (method tracing, object/payload logging, [Sensitive] masking) plus a Watch Server provider — sink, batching, and dynamic switch-based level control.
+  A Microsoft.Extensions.Logging structured logging API (method tracing, object/payload logging, [Sensitive] masking) plus a Watch Server provider — a ZLogger-based provider with batching and dynamic switch-based level control.
 </p>
 
 <p align="center">
   <a href="https://github.com/pondhawktech/pondhawk-logging/actions/workflows/build.yml"><img src="https://github.com/pondhawktech/pondhawk-logging/actions/workflows/build.yml/badge.svg" alt="Build" /></a>
-  <img src="https://img.shields.io/badge/.NET-10.0-512bd4" alt=".NET 10" />
+  <img src="https://img.shields.io/badge/.NET-8.0-512bd4" alt=".NET 8" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   <a href="https://www.nuget.org/packages/Pondhawk.Logging"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging?label=Logging" alt="Pondhawk.Logging on NuGet" /></a>
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.Watch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.Watch?label=Logging.Watch" alt="Pondhawk.Logging.Watch on NuGet" /></a>
 </p>
 
-Two packages, both `net10.0` and fully standalone (no dependency on other Pondhawk packages):
+Two packages, both `net8.0` and fully standalone (no dependency on other Pondhawk packages):
 
 | Package | Description |
 |---------|-------------|
-| [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The Serilog-based structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) + the `ILoggerSource` acquisition abstraction. **No sink or transport** — providers build on it. |
-| [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a Serilog sink with Channel-based batching, dynamic switch-based level control, and a switch-aware `ILoggerSource`. |
+| [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport** — providers build on it. |
+| [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
 
 ## Installation
 
@@ -32,7 +32,7 @@ dotnet add package Pondhawk.Logging.Watch   # only if you deliver events to a Wa
 
 ## Pondhawk.Logging
 
-Structured logging as extensions on Serilog's `ILogger` (`using Pondhawk.Logging;`):
+Structured logging as extensions on `Microsoft.Extensions.Logging`'s `ILogger` (`using Pondhawk.Logging;`):
 
 ```csharp
 using var _ = logger.EnterMethod();          // entry/exit + elapsed, disposable scope
@@ -44,42 +44,36 @@ logger.LogJson("payload", jsonString);       // typed payload with syntax-highli
 
 `[Sensitive]` masks a property when an object is serialized. Also included: `CorrelationManager`, the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
 
-### ILoggerSource
+### Acquiring loggers
 
-The single seam an app injects to obtain category-scoped loggers, independent of the provider underneath:
+Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type:
 
 ```csharp
-public interface ILoggerSource
-{
-    ILogger CreateLogger<T>();       // returns Serilog.ILogger
-    ILogger CreateLogger(Type source);
-    ILogger CreateLogger(string category);
-}
+ILogger logger = loggerFactory.CreateLogger<OrderService>();   // or CreateLogger("My.Category")
 ```
 
-`SerilogLoggerSource` is the canonical default (`root.ForContext(SourceContext, category)`). Swap in a provider's source — or your own — and handlers are unchanged.
+The returned `ILogger` is the standard `Microsoft.Extensions.Logging.ILogger`, so code that logs through it is unchanged whether or not a provider (like Watch) is wired underneath. Because the API gates on `ILogger.IsEnabled`, a switch-aware provider makes the whole API skip work for switch-dropped categories.
 
 ## Pondhawk.Logging.Watch
 
 Deliver events to a Watch Server and make the logging API switch-aware:
 
 ```csharp
+using Microsoft.Extensions.Logging;
 using Pondhawk.Logging.Watch;
-using Serilog;
 
 // Recommended — the Watch Server controls levels via switches
-Log.Logger = new LoggerConfiguration()
-    .UseWatch("http://localhost:11000", "MyApp")
-    .CreateLogger();
+builder.Logging.ClearProviders();
+builder.Logging.AddWatch("http://localhost:11000", "MyApp");
 ```
 
-`UseWatch(..., out SwitchSource)` exposes the switch source so the root can share one instance with a `WatchLoggerSource` — payloads for switch-dropped categories are never serialized. Events are batched over an unbounded Channel and sent as MemoryPack+Brotli, with a circuit breaker for HTTP resilience. See the [package README](src/Pondhawk.Logging.Watch/README.md) for switching, `ILoggerSource` wiring, and the event model.
+`AddWatch` registers a ZLogger delivery processor and a level filter driven by the Watch server's switch table, so payloads for switch-dropped categories are never serialized. Events are batched over an unbounded Channel and sent as MemoryPack, with a circuit breaker for HTTP resilience. See the [package README](src/Pondhawk.Logging.Watch/README.md) for switching and the event model.
 
 ## Repository Layout
 
 ```
-src/Pondhawk.Logging/          The logging API + ILoggerSource (net10.0)
-src/Pondhawk.Logging.Watch/    Watch Server provider — sink + switching (net10.0)
+src/Pondhawk.Logging/          The logging API on Microsoft.Extensions.Logging (net8.0)
+src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + switching (net8.0)
 test/Pondhawk.Logging.Tests/
 test/Pondhawk.Logging.Watch.Tests/
 build/                         Cake (Frosting) build script

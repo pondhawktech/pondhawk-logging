@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Title>Pondhawk Logging — Watch provider</Title>
-    <Description>Watch provider for Pondhawk.Logging: a Serilog sink with Channel-based batching, dynamic switch-based level control, and a switch-aware ILoggerSource for rich structured logging via the Watch Server.</Description>
+    <Description>Watch provider for Pondhawk.Logging: a ZLogger-based Microsoft.Extensions.Logging provider with Channel-based batching, dynamic switch-based level control, and MemoryPack delivery to the Watch Server.</Description>
     <Authors>Pond Hawk Technologies Inc.</Authors>
     <Company>Pond Hawk Technologies Inc.</Company>
     <Copyright>Pond Hawk Technologies Inc. (c) 2026</Copyright>
