@@ -184,7 +184,7 @@ src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)
-  WatchSinkOptions.cs                   # Options for AddWatch
+  WatchOptions.cs                       # Options for AddWatch
 
   # Switching
   Switch.cs                             # Switch model (Pattern, Tag, Level, Color)

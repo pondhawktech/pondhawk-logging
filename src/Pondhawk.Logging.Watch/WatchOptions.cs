@@ -9,7 +9,7 @@ namespace Pondhawk.Logging.Watch;
 /// <summary>
 /// Configuration options for <see cref="WatchLoggingBuilderExtensions"/>'s <c>AddWatch</c>.
 /// </summary>
-public class WatchSinkOptions
+public class WatchOptions
 {
     /// <summary>
     /// Gets or sets the Watch Server URL. Default is "http://localhost:11000".

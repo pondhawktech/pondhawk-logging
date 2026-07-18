@@ -30,13 +30,13 @@ public static class WatchLoggingBuilderExtensions
         this ILoggingBuilder builder,
         string serverUrl,
         string domain,
-        Action<WatchSinkOptions>? configure = null)
+        Action<WatchOptions>? configure = null)
     {
         Guard.IsNotNull(builder);
         Guard.IsNotNullOrWhiteSpace(serverUrl);
         Guard.IsNotNullOrWhiteSpace(domain);
 
-        var options = new WatchSinkOptions { ServerUrl = serverUrl, Domain = domain };
+        var options = new WatchOptions { ServerUrl = serverUrl, Domain = domain };
         configure?.Invoke(options);
 
         var normalizedUrl = options.ServerUrl.TrimEnd('/') + "/";
@@ -51,14 +51,14 @@ public static class WatchLoggingBuilderExtensions
 
     /// <summary>
     /// Wires the Watch filter and ZLogger processor onto the builder from a supplied HTTP client and switch
-    /// source. The public <see cref="AddWatch(ILoggingBuilder, string, string, Action{WatchSinkOptions})"/>
+    /// source. The public <see cref="AddWatch(ILoggingBuilder, string, string, Action{WatchOptions})"/>
     /// creates those; this overload lets tests inject controlled ones.
     /// </summary>
     internal static ILoggingBuilder AddWatch(
         this ILoggingBuilder builder,
         HttpClient httpClient,
         SwitchSource switches,
-        WatchSinkOptions options,
+        WatchOptions options,
         bool ownsDependencies)
     {
         // Open the MEL floor so the switch filter is the sole gate. ZLogger's own IsEnabled is always

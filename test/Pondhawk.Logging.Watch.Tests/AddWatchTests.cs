@@ -21,7 +21,7 @@ public class AddWatchTests
 
     private static ILoggerFactory BuildFactory(SwitchSource switches)
     {
-        var options = new WatchSinkOptions { Domain = "D" };
+        var options = new WatchOptions { Domain = "D" };
         return LoggerFactory.Create(b =>
             b.AddWatch(CreateClient(new MockHttpHandler()), switches, options, ownsDependencies: false));
     }
