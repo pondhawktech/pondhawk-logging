@@ -42,7 +42,8 @@ public class WatchOptions
     public TimeSpan? FlushInterval { get; set; }
 
     /// <summary>
-    /// Gets or sets the switch polling interval. Null uses the WatchSwitchSource default (30 seconds).
+    /// Gets or sets the switch polling interval. Null uses the WatchSwitchSource default (5 seconds).
+    /// Polls are conditional (If-None-Match), so an unchanged interval is a cheap 304 with no rebuild.
     /// </summary>
     public TimeSpan? PollInterval { get; set; }
 }
