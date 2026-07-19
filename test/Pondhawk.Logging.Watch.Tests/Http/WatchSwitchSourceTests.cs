@@ -359,4 +359,79 @@ public class WatchSwitchSourceTests
         handler.Requests[0].RequestUri.PathAndQuery.ShouldContain("domain=my%20domain%2Fspecial");
     }
 
+    // --- Conditional GET (ETag / If-None-Match) ---
+
+    // A server stub that answers conditional GETs from a mutable (etag, switches) pair: a matching
+    // If-None-Match yields 304, otherwise 200 with the body and current ETag.
+    private static void ServeConditional(MockHttpHandler handler, Func<string> etag, Func<SwitchDto[]> switches)
+    {
+        handler.SetHandler((request, _) =>
+        {
+            var current = etag();
+            var inm = request.Headers.TryGetValues("If-None-Match", out var vals) ? vals.FirstOrDefault() : null;
+
+            if (inm == current)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotModified));
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = CreateSwitchesJson(switches()) };
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(current);
+            return Task.FromResult(response);
+        });
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FirstFetch_SendsNoIfNoneMatch()
+    {
+        var handler = new MockHttpHandler();
+        ServeConditional(handler, () => "\"v1\"",
+            () => [new SwitchDto { Pattern = "A", Level = (int)LogLevel.Debug }]);
+
+        var source = new WatchSwitchSource(CreateClient(handler), "d");
+        await source.UpdateAsync();
+
+        handler.Requests[0].Headers.Contains("If-None-Match").ShouldBeFalse();
+        source.Version.ShouldBe(1); // switches applied
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Unchanged_SendsETag_And_SkipsRebuild()
+    {
+        var handler = new MockHttpHandler();
+        ServeConditional(handler, () => "\"v1\"",
+            () => [new SwitchDto { Pattern = "A", Level = (int)LogLevel.Debug }]);
+
+        var source = new WatchSwitchSource(CreateClient(handler), "d");
+
+        await source.UpdateAsync();            // 200, applies switches, remembers "v1"
+        var versionAfterFirst = source.Version;
+
+        await source.UpdateAsync();            // sends If-None-Match "v1" -> 304
+
+        handler.Requests[1].Headers.GetValues("If-None-Match").ShouldContain("\"v1\"");
+        source.Version.ShouldBe(versionAfterFirst); // no rebuild on 304
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ChangedETag_Rebuilds()
+    {
+        var handler = new MockHttpHandler();
+        var etag = "\"v1\"";
+        var pattern = "A";
+        ServeConditional(handler, () => etag,
+            () => [new SwitchDto { Pattern = pattern, Level = (int)LogLevel.Debug }]);
+
+        var source = new WatchSwitchSource(CreateClient(handler), "d");
+
+        await source.UpdateAsync();            // applies v1
+        var v1 = source.Version;
+
+        // Server-side change: new etag + new switch set.
+        etag = "\"v2\"";
+        pattern = "B";
+
+        await source.UpdateAsync();            // If-None-Match "v1" != "v2" -> 200, rebuild
+
+        source.Version.ShouldBe(v1 + 1);
+    }
+
 }

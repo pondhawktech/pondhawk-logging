@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
+using System.Net;
 using System.Net.Http.Json;
 using System.Threading;
 using CommunityToolkit.Diagnostics;
@@ -33,6 +34,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     private bool _started;
     private int _lifecycleDisposed;
 
+    // The ETag of the last switch set we applied. Sent back as If-None-Match so the server can answer
+    // 304 Not Modified when nothing changed, letting us skip both the download and the rebuild.
+    private string? _lastETag;
+
     /// <summary>
     /// Gets or sets whether polling is enabled. Default is true.
     /// </summary>
@@ -43,7 +48,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     /// </summary>
     /// <param name="client">The HTTP client to use for requests.</param>
     /// <param name="domain">The domain name to fetch switches for.</param>
-    /// <param name="pollInterval">The interval between polls. Default is 30 seconds.</param>
+    /// <param name="pollInterval">The interval between polls. Default is 5 seconds.</param>
     public WatchSwitchSource(HttpClient client, string domain, TimeSpan? pollInterval = null)
     {
         Guard.IsNotNull(client);
@@ -51,7 +56,9 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
 
         _client = client;
         _domain = domain;
-        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(30);
+        // Conditional polling (If-None-Match) makes an unchanged poll a tiny 304 with no rebuild, so a
+        // short interval is cheap and gives near-real-time switch propagation.
+        _pollInterval = pollInterval ?? TimeSpan.FromSeconds(5);
     }
 
     /// <summary>
@@ -95,11 +102,23 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
         try
         {
             var url = $"api/switches?domain={Uri.EscapeDataString(_domain)}";
-            var response = await _client.GetFromJsonAsync<SwitchesResponse>(url, ct).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (_lastETag is not null)
+                request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);
 
-            if (response?.Switches is not null)
+            using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
+
+            // Unchanged since our last successful fetch: skip both the download and the rebuild.
+            if (response.StatusCode == HttpStatusCode.NotModified)
+                return;
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var payload = await response.Content.ReadFromJsonAsync<SwitchesResponse>(ct).ConfigureAwait(false);
+            if (payload?.Switches is not null)
             {
-                var defs = response.Switches.Select(s => new SwitchDef
+                var defs = payload.Switches.Select(s => new SwitchDef
                 {
                     Pattern = s.Pattern,
                     Tag = s.Tag,
@@ -108,6 +127,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
                 }).ToList();
 
                 Update(defs);
+
+                // Only remember the ETag once the corresponding switches are actually applied, so a
+                // mid-parse failure doesn't leave us claiming to hold a set we never installed.
+                _lastETag = response.Headers.ETag?.ToString();
             }
         }
         catch
