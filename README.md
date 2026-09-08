@@ -40,8 +40,16 @@ Structured logging as extensions on `Microsoft.Extensions.Logging`'s `ILogger` (
 using var _ = logger.EnterMethod();          // entry/exit + elapsed, disposable scope
 
 logger.Inspect(nameof(orderId), orderId);    // "orderId = 4271" at Debug
-logger.LogObject("order", order);            // serialize an object to a JSON payload
-logger.LogJson("payload", jsonString);       // typed payload with syntax-highlight hints
+logger.LogObject("order", order);            // serialize an object to a JSON payload (Trace)
+logger.LogJson("payload", jsonString);       // typed payload with syntax-highlight hints (Debug)
+
+// Every payload method takes an optional level, so the content explaining a failure
+// rides on the event that reports it rather than on a Trace event production drops.
+logger.LogJson(LogLevel.Error, "Malformed plan", planJson);
+logger.LogObject(LogLevel.Error, "result", result);
+
+// An error plus the state that surrounds it, on one event.
+logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 ```
 
 `[Sensitive]` masks a property when an object is serialized. Also included: `CorrelationManager`, the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.

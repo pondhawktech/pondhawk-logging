@@ -152,9 +152,16 @@ The logging API in `Pondhawk.Logging` attaches well-known log-state properties, 
 - `Pondhawk.Nesting` — method tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of `PayloadType` enum
 - `Pondhawk.PayloadContent` — serialized payload string
+- `Pondhawk.ErrorContext` — the `ErrorWithContext` context object, serialized to JSON
 
 `WatchLoggerProcessor` reads these from the ZLogger entry's structured state and maps them to the Watch
 `LogEvent` model.
+
+`LogEvent` carries a **single** payload slot (`Type` + `Payload`) end to end — the server's mirror model
+marks `Object`, `Error`, and `ErrorContext` as ignored by both MemoryPack and JSON, and the persisted
+packet has only the one slot. So when an event carries both an exception and an error context, the
+processor composes them into that slot as Text: a `--- Context ---` block holding the JSON, then
+`--- Exception ---` with the full exception detail. An exception alone still serializes exactly as before.
 
 ## Performance Guidelines
 

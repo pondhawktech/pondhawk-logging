@@ -22,6 +22,12 @@ public static class LogPropertyNames
     /// <summary>The serialized payload content string.</summary>
     public const string PayloadContent = "Pondhawk.PayloadContent";
 
+    /// <summary>
+    /// The context object attached to an error event by <c>ErrorWithContext</c>, serialized to JSON. A sink
+    /// renders it alongside the exception detail on the same event.
+    /// </summary>
+    public const string ErrorContext = "Pondhawk.ErrorContext";
+
     /// <summary>The correlation identifier property attached to emitted events.</summary>
     public const string CorrelationId = "Pondhawk.CorrelationId";
 

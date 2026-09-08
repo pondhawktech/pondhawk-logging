@@ -40,8 +40,10 @@ The structured logging API on `Microsoft.Extensions.Logging`. No sink, no transp
 - **Logging API** (`Pondhawk.Logging` namespace): `LoggingExtensions` provides extensions on `ILogger`:
   - **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time
   - **`ILogger.Inspect(name, value)`** — logs a name/value pair as `"{Name} = {Value}"` at Debug level
-  - **`ILogger.LogObject(value)`** — serializes an object to a JSON payload
-  - **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints
+  - **`ILogger.LogObject(value)`** — serializes an object to a JSON payload (Trace)
+  - **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints (Debug)
+  - **A `LogLevel` overload of every payload method** — `LogJson(level, title, json)`, `LogObject(level, title, value)`, … so a payload can ride on the failure event that needs it
+  - **`ILogger.ErrorWithContext(cause, context, message)`** — an error carrying the exception plus a serialized context object (`Pondhawk.ErrorContext`)
   - Also: `LogPropertyNames` (public `Pondhawk.*` log-state property-name contract shared with sinks), `LogState` (the state the API attaches), serializers (`JsonObjectSerializer`), `PayloadType` enum, `[Sensitive]` attribute, `CorrelationManager`, `TypeExtensions` (concise type names).
 - **Logger acquisition**: the standard `ILoggerFactory` (`CreateLogger<T>()` / `CreateLogger(Type)` / `CreateLogger(string)`), returning `Microsoft.Extensions.Logging.ILogger`. Because the whole API gates on `ILogger.IsEnabled`, a provider that makes `IsEnabled` switch-aware makes the whole API skip work for switch-dropped categories.
 

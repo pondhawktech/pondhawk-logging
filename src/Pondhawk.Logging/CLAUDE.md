@@ -190,15 +190,39 @@ using var scope = logger.EnterMethod();   // extension on ILogger
 ### Typed Payloads
 
 ```csharp
-logger.LogObject(dto);              // Serializes to JSON
+logger.LogObject(dto);              // Serializes to JSON, at Trace
 logger.LogObject("Title", dto);     // With a custom title
-logger.LogJson("Title", jsonStr);   // Raw JSON with highlighting
+logger.LogJson("Title", jsonStr);   // Raw JSON with highlighting, at Debug
 logger.LogSql("Query", sqlStr);     // SQL syntax highlighting
 logger.LogXml("Config", xmlStr);    // XML syntax highlighting
 logger.LogYaml("Data", yamlStr);    // YAML syntax highlighting
 logger.LogText("Output", textStr);  // Plain text
 logger.Inspect("name", value);      // Logs "name = value" at Debug
 ```
+
+### Payloads at a Caller-Chosen Level
+
+Every payload method has a `LogLevel` overload. The default levels — Debug for the typed payloads, Trace
+for `LogObject` — suit incidental detail, but the payload that matters most is usually the one explaining
+a failure, and at the default it would be dropped by the very hosts that need it.
+
+```csharp
+logger.LogJson(LogLevel.Error, "Malformed Mission Plan", planJson);
+logger.LogText(LogLevel.Error, "Schema", schemaText);
+logger.LogObject(LogLevel.Error, "result", result);
+logger.LogYaml(LogLevel.Information, "Appliance Info", yaml);
+```
+
+### Error Context
+
+```csharp
+logger.ErrorWithContext(cause, new { InstanceId = id, Arn = arn }, "Failed to deregister");
+```
+
+Serializes `context` to JSON, attaches it as `Pondhawk.ErrorContext`, and logs at Error with the
+exception. Folding the state into the message string loses its structure and a separate `LogObject` call
+detaches it from the exception it explains; this keeps both on one event. A sink renders the two together
+— the Watch provider composes them into its single payload slot, context first.
 
 ---
 
@@ -210,6 +234,7 @@ read. All are prefixed `Pondhawk.`:
 - `Pondhawk.Nesting` — method-tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of the `PayloadType` enum
 - `Pondhawk.PayloadContent` — serialized payload string
+- `Pondhawk.ErrorContext` — the `ErrorWithContext` context object, serialized to JSON
 - `Pondhawk.CorrelationId` — correlation identifier
 - `pondhawk.correlation` — `Activity` baggage key used to flow the correlation id
 
