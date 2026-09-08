@@ -114,6 +114,22 @@ URIs — replaced wholesale on a rebind. `WatchLoggerProcessor` reads a binding 
 re-reads configuration can call it unconditionally. A domain-only destination (the shape behind the
 constructors that resolve against `HttpClient.BaseAddress`) cannot be rebound and throws.
 
+### Starting unbound
+
+`WatchDestination.Unbound(domain?)` names no server at all — for a host whose destination arrives after
+startup, where a placeholder URL would make an open circuit breaker and a climbing `DroppedEventCount` the
+normal state of a healthy process. While unbound:
+
+- nothing is posted and no switches are polled (the switch table keeps the defaults `AddWatch` gave it);
+- no failure is counted and the circuit stays shut — this is a configured state, not an outage;
+- Warning and above is held in the critical buffer under its usual cap, and the first successful post after
+  the rebind delivers it under the domain that rebind supplied;
+- anything below Warning is discarded, on the same reasoning as an outage: startup tracing is not worth
+  holding memory for.
+
+The poll loop keeps ticking while unbound, so switch polling resumes on the next interval after a rebind
+with no restart.
+
 ## Switch-based level gating
 
 `AddWatch` registers a `Microsoft.Extensions.Logging` filter that matches a logger's category against the
@@ -125,6 +141,13 @@ call site, with no change to calling code — callers just hold a plain `ILogger
 
 The switch table is polled from the Watch Server by `WatchSwitchSource`; updates take effect on the next
 log call (version-based invalidation) without recreating loggers.
+
+**The short-circuit is per category, not per provider.** `ILogger.IsEnabled` is true when *any* registered
+provider would keep the event, so a provider-scoped filter — `AddJournaldConsole`'s Warning floor — never
+short-circuits a call site by itself; only the switch table, which reaches every provider through the
+global filter, can. Registering both providers with the switch table at Debug means a `LogDebug` call site
+still formats: Watch keeps the event and the console discards it. Worth knowing before assuming a console
+floor buys back formatting cost.
 
 ## Extension Method Reference
 
@@ -220,7 +243,7 @@ src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)
-  WatchDestination.cs                   # The server + domain delivered to; rebindable at runtime
+  WatchDestination.cs                   # The server + domain delivered to; rebindable, or initially unbound
   WatchOptions.cs                       # Options for AddWatch
 
   # Switching

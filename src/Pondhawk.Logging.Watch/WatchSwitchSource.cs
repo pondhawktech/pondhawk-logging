@@ -132,6 +132,11 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
                 _lastETag = null;
             }
 
+            // Nothing to poll until a server is named. The switch table keeps the defaults AddWatch gave it,
+            // and the poll loop keeps ticking, so a rebind is picked up on the next interval.
+            if (binding.IsUnbound)
+                return;
+
             using var request = new HttpRequestMessage(HttpMethod.Get, binding.SwitchesUri);
             if (_lastETag is not null)
                 request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);

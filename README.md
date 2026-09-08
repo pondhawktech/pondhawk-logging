@@ -67,6 +67,10 @@ builder.Logging.AddWatch(destination);
 destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
 ```
 
+A host with no destination at startup starts `WatchDestination.Unbound()` instead of pointing at a
+placeholder. While unbound nothing is posted, no failure is counted and the circuit stays shut; Warning
+and above is held for the rebind that names a server.
+
 ### Acquiring loggers
 
 Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type:

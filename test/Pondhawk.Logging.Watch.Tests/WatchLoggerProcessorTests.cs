@@ -224,6 +224,57 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Unbound_PostsNothing_AndKeepsTheCircuitShut()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, _, processor) = BuildRebindable(handler, WatchDestination.Unbound("agent"));
+
+        var logger = factory.CreateLogger("X");
+        for (var i = 0; i < processor.FailureThreshold + 2; i++)
+            logger.LogError("startup {N}", i);
+
+        await Task.Delay(200);
+
+        // Not knowing where to log yet is a configured state, not an outage.
+        handler.Requests.ShouldBeEmpty();
+        processor.IsCircuitOpen.ShouldBeFalse();
+        processor.DroppedEventCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Unbound_HoldsWarningAndAbove_AndDeliversThemOnceRebound()
+    {
+        var handler = new MockHttpHandler();
+        var destination = WatchDestination.Unbound("agent");
+        var (factory, received, processor) = BuildRebindable(handler, destination);
+
+        var logger = factory.CreateLogger("X");
+        logger.LogDebug("pre-plan tracing");
+        logger.LogError("pre-plan failure");
+
+        (await WaitUntil(() => processor.CriticalBufferCount >= 1)).ShouldBeTrue();
+
+        destination.Rebind("http://watch.example", "Fleet").ShouldBeTrue();
+        logger.LogInformation("post-plan");
+
+        (await WaitUntil(() => Count(received) >= 2)).ShouldBeTrue();
+
+        List<LogEvent> events;
+        lock (received)
+            events = received.SelectMany(r => r.Batch.Events).ToList();
+
+        // The event describing how the process came up is delivered under the domain that released it.
+        events.ShouldContain(e => e.Title == "pre-plan failure");
+        events.ShouldContain(e => e.Title == "post-plan");
+
+        // Tracing below Warning is not worth holding memory for, and was not held.
+        events.ShouldNotContain(e => e.Title == "pre-plan tracing");
+
+        lock (received)
+            received.ShouldAllBe(r => r.Batch.Domain == "Fleet");
+    }
+
+    [Fact]
     public async Task Delivers_LogEvent_WithCategoryTitleAndLevel()
     {
         var handler = new MockHttpHandler();

@@ -87,6 +87,40 @@ public class WatchDestinationTests
         Should.Throw<ArgumentException>(() => destination.Rebind(serverUrl, domain));
     }
 
+    // ── Unbound ──
+
+    [Fact]
+    public void Unbound_NamesNoServer_AndHasNowhereToPostOrPoll()
+    {
+        var destination = WatchDestination.Unbound("agent");
+
+        destination.IsBound.ShouldBeFalse();
+        destination.ServerUrl.ShouldBeEmpty();
+        destination.Domain.ShouldBe("agent");
+        destination.Current.SinkUri.ShouldBeNull();
+        destination.Current.SwitchesUri.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Unbound_TakesNoDomain_WhenThereIsNothingToLabelItWith()
+    {
+        WatchDestination.Unbound().Domain.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Unbound_IsRebindable_AndBecomesBound()
+    {
+        var destination = WatchDestination.Unbound("agent");
+
+        destination.Rebind("http://watch.example", "Fleet").ShouldBeTrue();
+
+        destination.IsBound.ShouldBeTrue();
+        destination.ServerUrl.ShouldBe("http://watch.example");
+        destination.Domain.ShouldBe("Fleet");
+        destination.Version.ShouldBe(2);
+        destination.Current.SinkUri.ShouldBe(new Uri("http://watch.example/api/sink"));
+    }
+
     [Fact]
     public void RelativeDestination_KeepsUrisRelative_AndCannotBeRebound()
     {
