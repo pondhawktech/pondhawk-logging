@@ -1,6 +1,10 @@
 #nullable enable
 
+using System;
+using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
+using System.Xml.Linq;
 using Cake.Common;
 using Cake.Common.IO;
 using Cake.Common.Tools.DotNet;
@@ -54,6 +58,22 @@ public class BuildContext : FrostingContext
             ?? context.Environment.GetEnvironmentVariable("NUGET_API_KEY");
     }
 
+    /// <summary>
+    /// The version inputs every dotnet invocation gets. Only the build number and suffix travel on the
+    /// command line; each project derives its own version from its own version.json (see
+    /// src/Directory.Build.props), so a project reference is never evaluated at the referencing project's
+    /// version.
+    /// </summary>
+    public DotNetMSBuildSettings VersionProperties()
+    {
+        var settings = new DotNetMSBuildSettings().WithProperty("BuildNumber", BuildNumber);
+
+        if (VersionSuffix is not null)
+            settings = settings.WithProperty("VersionSuffix", VersionSuffix);
+
+        return settings;
+    }
+
     public string GetProjectVersion(string projectPath)
     {
         var projectDir = System.IO.Path.GetDirectoryName(projectPath)!;
@@ -102,7 +122,8 @@ public sealed class BuildTask : FrostingTask<BuildContext>
         context.DotNetBuild(context.Solution, new DotNetBuildSettings
         {
             Configuration = context.Configuration,
-            NoRestore = true
+            NoRestore = true,
+            MSBuildSettings = context.VersionProperties()
         });
     }
 }
@@ -117,7 +138,8 @@ public sealed class TestTask : FrostingTask<BuildContext>
         {
             Configuration = context.Configuration,
             NoBuild = true,
-            NoRestore = true
+            NoRestore = true,
+            MSBuildSettings = context.VersionProperties()
         });
     }
 }
@@ -139,11 +161,59 @@ public sealed class PackTask : FrostingTask<BuildContext>
                 NoBuild = true,
                 NoRestore = true,
                 OutputDirectory = context.Artifacts.FullPath,
-                MSBuildSettings = new DotNetMSBuildSettings()
-                    .WithProperty("PackageVersion", version)
-                    .WithProperty("Version", version)
+                // Deliberately NOT Version/PackageVersion: those are global properties and would follow
+                // the project reference into Pondhawk.Logging, stamping this package's version as the
+                // dependency's. The projects derive their own versions from version.json instead.
+                MSBuildSettings = context.VersionProperties()
             });
         }
+
+        VerifyInternalDependencyVersions(context);
+    }
+
+    /// <summary>
+    /// Reads back each packed nuspec and fails the build if a dependency on one of our own packages names
+    /// a version other than the one being packed alongside it. That mismatch is invisible in the build log
+    /// and in the package itself — it only surfaces as an unresolvable restore on a consumer's machine, so
+    /// it is worth catching here rather than on NuGet.org, where a version cannot be replaced.
+    /// </summary>
+    private static void VerifyInternalDependencyVersions(BuildContext context)
+    {
+        var ours = context.SourceProjects.ToDictionary(
+            project => System.IO.Path.GetFileNameWithoutExtension(project),
+            context.GetProjectVersion,
+            StringComparer.Ordinal);
+
+        foreach (var (id, version) in ours)
+        {
+            var package = System.IO.Path.Combine(context.Artifacts.FullPath, $"{id}.{version}.nupkg");
+
+            using var archive = ZipFile.OpenRead(package);
+            var entry = archive.GetEntry($"{id}.nuspec")
+                ?? throw new System.InvalidOperationException($"No nuspec found in {package}.");
+
+            using var stream = entry.Open();
+            var nuspec = XDocument.Load(stream);
+
+            foreach (var dependency in nuspec.Descendants().Where(e => e.Name.LocalName == "dependency"))
+            {
+                var dependencyId = dependency.Attribute("id")?.Value;
+                if (dependencyId is null || !ours.TryGetValue(dependencyId, out var expected))
+                    continue;
+
+                var declared = dependency.Attribute("version")?.Value;
+                if (!string.Equals(declared, expected, StringComparison.Ordinal))
+                {
+                    throw new System.InvalidOperationException(
+                        $"{id} {version} declares a dependency on {dependencyId} {declared}, but {dependencyId} " +
+                        $"is packed as {expected}. A version has leaked into the project reference as a global " +
+                        "MSBuild property — see src/Directory.Build.props.");
+                }
+            }
+        }
+
+        context.Log.Write(Verbosity.Normal, LogLevel.Information,
+            "Verified internal dependency versions across {0} packages.", ours.Count);
     }
 }
 

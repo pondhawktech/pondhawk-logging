@@ -156,6 +156,20 @@ reset so an unreachable old server does not hold the new one shut. `Rebind` retu
 disturbs nothing when handed the destination already in use, so a client polling for configuration can
 call it unconditionally.
 
+### If your code already has a `Ulid` type
+
+This package depends on [Cysharp's Ulid](https://www.nuget.org/packages/Ulid), which declares its type in
+the **`System`** namespace. A consumer that has its own `Ulid` therefore gets `CS0104` ambiguity as soon as
+it adopts this package, in every file where both are in scope. One global alias settles it for the whole
+project:
+
+```csharp
+// GlobalUsings.cs
+global using Ulid = MyCompany.Support.Ulid;   // your type wins project-wide
+```
+
+Correlation ids are the only thing this package uses it for, and it is not exposed on any public API.
+
 ## Key Components
 
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation), then delivers them.

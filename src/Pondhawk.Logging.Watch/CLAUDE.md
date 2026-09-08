@@ -273,4 +273,5 @@ this package.
 - Do use structured logging (`"User {UserId}", userId`) or ZLogger's interpolated `ZLog*` methods
 - Do use `EnterMethod()` for method-level tracing
 - Do use appropriate PayloadType for syntax highlighting
+- Do expect `CS0104` on adoption if the consumer has its own `Ulid`: the Ulid package declares its type in `System`. One `global using Ulid = …` alias in the consumer settles it; see the README.
 - Don't set color in application code — it comes from Switch configuration

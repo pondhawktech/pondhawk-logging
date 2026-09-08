@@ -1,5 +1,24 @@
 <Project>
 
+  <!--
+    Each project's version comes from its own version.json, combined with the BuildNumber the build passes
+    in. Deriving it here rather than passing Version on the command line is deliberate: a command-line
+    property is a GLOBAL property, so it flows into project references too. Packing a project that
+    references another would then evaluate the referenced project at the packing project's version and
+    stamp that as the dependency — invisible while every package shares a major.minor, and wrong the moment
+    one of them moves ahead.
+  -->
+  <PropertyGroup>
+    <_VersionFile>$(MSBuildProjectDirectory)/version.json</_VersionFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="Exists('$(_VersionFile)')">
+    <_VersionJson>$([System.IO.File]::ReadAllText('$(_VersionFile)'))</_VersionJson>
+    <_MajorMinor>$([System.Text.RegularExpressions.Regex]::Replace($(_VersionJson), '(?s)^.*?"version"\s*:\s*"([^"]*)".*$', '$1').Trim())</_MajorMinor>
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <VersionPrefix>$(_MajorMinor).$(BuildNumber)</VersionPrefix>
+  </PropertyGroup>
+
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <AnalysisLevel>latest-Recommended</AnalysisLevel>
