@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Channels;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,11 @@ namespace Pondhawk.Logging.Watch;
 /// </remarks>
 public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 {
+    // Banners match the layout Watch clients have shown for error context since Fabrica.Watch, so an
+    // existing viewer renders a combined payload the way its readers already expect.
+    private const string ContextBanner = "--- Context -----------------------------------------";
+    private const string ExceptionBanner = "--- Exception ---------------------------------------";
+
     private readonly HttpClient _client;
     private readonly SwitchSource _switchSource;
     private readonly bool _ownsDependencies;
@@ -164,6 +170,8 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             Occurred = info.Timestamp.Utc.UtcDateTime,
         };
 
+        string? errorContext = null;
+
         for (var i = 0; i < entry.ParameterCount; i++)
         {
             var key = entry.GetParameterKeyAsString(i);
@@ -180,19 +188,45 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
                 case LogPropertyNames.PayloadContent:
                     logEvent.Payload = value as string ?? value?.ToString();
                     break;
+                case LogPropertyNames.ErrorContext:
+                    errorContext = value as string ?? value?.ToString();
+                    break;
             }
         }
 
-        // If no explicit payload was attached but the event carries an exception, transmit its full detail.
+        // If no explicit payload was attached but the event carries an exception, transmit its full detail —
+        // preceded by the context object when ErrorWithContext attached one. The wire model carries a single
+        // payload slot, so the two share it rather than one displacing the other.
         if (logEvent.Payload is null && info.Exception is not null)
         {
             var exception = info.Exception;
             logEvent.ErrorType = exception.GetType().FullName ?? exception.GetType().Name;
             logEvent.Type = (int)PayloadType.Text;
-            logEvent.Payload = exception.ToString();
+            logEvent.Payload = errorContext is null
+                ? exception.ToString()
+                : ComposeErrorPayload(errorContext, exception);
+        }
+        else if (logEvent.Payload is null && errorContext is not null)
+        {
+            // Context without an exception: nothing to interleave it with, so send it as the JSON it is.
+            logEvent.Type = (int)PayloadType.Json;
+            logEvent.Payload = errorContext;
         }
 
         return logEvent;
+    }
+
+    private static string ComposeErrorPayload(string errorContext, Exception exception)
+    {
+        var builder = new StringBuilder();
+
+        builder.AppendLine(ContextBanner);
+        builder.AppendLine(errorContext);
+        builder.AppendLine();
+        builder.AppendLine(ExceptionBanner);
+        builder.Append(exception.ToString());
+
+        return builder.ToString();
     }
 
     private static string GetCorrelationId()

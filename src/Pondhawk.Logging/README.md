@@ -16,8 +16,10 @@ for these):
 
 - **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time
 - **`ILogger.Inspect(name, value)`** — logs a name/value pair as `"{Name} = {Value}"` at Debug level
-- **`ILogger.LogObject(value)`** / **`LogObject(title, value)`** — serializes an object to a JSON payload
-- **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints
+- **`ILogger.LogObject(value)`** / **`LogObject(title, value)`** — serializes an object to a JSON payload at Trace
+- **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints, at Debug
+- **A `LogLevel` overload of every payload method** — `LogJson(LogLevel.Error, title, json)`, `LogObject(LogLevel.Error, title, value)`, … The payload that matters most is usually the one explaining a failure, and it has to ride on the event that reports the failure rather than on a low-level event a production level drops
+- **`ILogger.ErrorWithContext(cause, context, message)`** — logs an error carrying both the exception and a serialized context object, keeping the surrounding state attached to the failure it explains instead of flattened into the message
 - **`[Sensitive]`** — attribute that masks a property when an object is serialized (`"Sensitive - HasValue: true"`)
 
 Each method guards on `ILogger.IsEnabled` first, so a disabled (e.g. switch-dropped) category pays no

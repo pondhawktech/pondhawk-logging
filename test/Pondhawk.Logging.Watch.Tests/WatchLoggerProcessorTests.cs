@@ -149,6 +149,45 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Delivers_ErrorWithContext_AsOnePayloadCarryingContextAndException()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("C").ErrorWithContext(
+            new InvalidOperationException("boom"),
+            new { InstanceId = "i-0abc" },
+            "Failed to deregister");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Title.ShouldBe("Failed to deregister");
+        e.ErrorType.ShouldContain("InvalidOperationException");
+        e.Type.ShouldBe((int)PayloadType.Text);
+
+        // One payload slot on the wire, so the context and the exception detail share it.
+        e.Payload.ShouldContain("i-0abc");
+        e.Payload.ShouldContain("boom");
+        e.Payload!.IndexOf("i-0abc", StringComparison.Ordinal)
+            .ShouldBeLessThan(e.Payload.IndexOf("boom", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Delivers_PayloadAtCallerChosenLevel()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("L").LogJson(LogLevel.Error, "Malformed Mission Plan", "{\"bad\":");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Level.ShouldBe((int)LogLevel.Error);
+        e.Type.ShouldBe((int)PayloadType.Json);
+        e.Payload.ShouldContain("bad");
+    }
+
+    [Fact]
     public async Task Delivers_MethodTrace_WithNesting()
     {
         var handler = new MockHttpHandler();

@@ -88,6 +88,13 @@ logger.LogSql("Query", sqlString);
 logger.LogXml("Configuration", xmlString);
 logger.LogYaml("Settings", yamlString);
 logger.LogText("Output", textString);
+
+// Any payload method can name its level.
+logger.LogJson(LogLevel.Error, "Malformed Mission Plan", planJson);
+
+// Exception + surrounding state on one event: the Watch payload shows the context
+// object above the exception detail.
+logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 ```
 
 ### Sensitive Data Masking
