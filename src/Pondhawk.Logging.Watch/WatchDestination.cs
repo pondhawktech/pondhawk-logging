@@ -22,6 +22,13 @@ namespace Pondhawk.Logging.Watch;
 /// are read from one snapshot. The switch source picks up the new domain's switches on its next poll, and
 /// the processor's circuit breaker is reset, so an unreachable old server does not hold the new one shut.
 /// </para>
+/// <para>
+/// A destination can also start <see cref="Unbound"/>: a host whose destination arrives later — from a
+/// mission plan, from user-data — has nothing to name at startup, and pointing it at a placeholder server
+/// would make an open circuit breaker the normal state of a healthy process. While unbound the provider
+/// posts nothing, counts no failures and leaves the circuit shut, holding Warning and above so the events
+/// describing how the process came up are delivered once a destination is named.
+/// </para>
 /// <para>Thread-safe: readers take a consistent snapshot, and rebinds are serialized.</para>
 /// </remarks>
 public sealed class WatchDestination
@@ -53,7 +60,21 @@ public sealed class WatchDestination
         _current = Binding.Relative(1, domain);
     }
 
-    /// <summary>Gets the current Watch server URL, or an empty string for a relative destination.</summary>
+    /// <summary>
+    /// Creates a destination that names no server yet. Nothing is posted until <see cref="Rebind"/> names
+    /// one; events at Warning and above are held until then, and lower levels are discarded.
+    /// </summary>
+    /// <param name="domain">
+    /// An optional label for the unbound state. It never reaches the wire — the domain a held event is
+    /// delivered under is the one supplied by the <see cref="Rebind"/> that releases it.
+    /// </param>
+    /// <returns>An unbound destination, ready to be passed to <c>AddWatch</c> and rebound later.</returns>
+    public static WatchDestination Unbound(string domain = "")
+        => new(Binding.Unbound(1, domain ?? string.Empty));
+
+    private WatchDestination(Binding binding) => _current = binding;
+
+    /// <summary>Gets the current Watch server URL, or an empty string when relative or unbound.</summary>
     public string ServerUrl => Current.ServerUrl;
 
     /// <summary>Gets the current domain name.</summary>
@@ -64,6 +85,12 @@ public sealed class WatchDestination
     /// that changes something, which is how the switch source and the processor notice a rebind.
     /// </summary>
     public long Version => Current.Version;
+
+    /// <summary>
+    /// Gets whether a server has been named. <see langword="false"/> only for an <see cref="Unbound"/>
+    /// destination that has not been rebound yet.
+    /// </summary>
+    public bool IsBound => !Current.IsUnbound;
 
     /// <summary>
     /// Points the provider at a different Watch server and domain, effective from the next batch posted
@@ -89,7 +116,7 @@ public sealed class WatchDestination
             if (current.IsRelative)
             {
                 throw new InvalidOperationException(
-                    "This WatchDestination has no server URL of its own — its requests resolve against the HttpClient's BaseAddress — so it cannot be rebound. Construct it with a server URL to make the destination rebindable.");
+                    "This WatchDestination has no server URL of its own — its requests resolve against the HttpClient's BaseAddress — so it cannot be rebound. Construct it with a server URL, or use WatchDestination.Unbound, to make the destination rebindable.");
             }
 
             if (string.Equals(current.ServerUrl, serverUrl, StringComparison.Ordinal) &&
@@ -112,7 +139,7 @@ public sealed class WatchDestination
     /// </summary>
     internal sealed class Binding
     {
-        private Binding(long version, string serverUrl, string domain, Uri sinkUri, Uri switchesUri, bool isRelative)
+        private Binding(long version, string serverUrl, string domain, Uri? sinkUri, Uri? switchesUri, bool isRelative, bool isUnbound)
         {
             Version = version;
             ServerUrl = serverUrl;
@@ -120,6 +147,7 @@ public sealed class WatchDestination
             SinkUri = sinkUri;
             SwitchesUri = switchesUri;
             IsRelative = isRelative;
+            IsUnbound = isUnbound;
         }
 
         public long Version { get; }
@@ -128,14 +156,17 @@ public sealed class WatchDestination
 
         public string Domain { get; }
 
-        /// <summary>The URI to post event batches to.</summary>
-        public Uri SinkUri { get; }
+        /// <summary>The URI to post event batches to; <see langword="null"/> when unbound.</summary>
+        public Uri? SinkUri { get; }
 
-        /// <summary>The URI to poll this domain's switches from.</summary>
-        public Uri SwitchesUri { get; }
+        /// <summary>The URI to poll this domain's switches from; <see langword="null"/> when unbound.</summary>
+        public Uri? SwitchesUri { get; }
 
         /// <summary>True when the URIs are relative and resolve against the client's base address.</summary>
         public bool IsRelative { get; }
+
+        /// <summary>True when no server has been named yet, so there is nowhere to post or poll.</summary>
+        public bool IsUnbound { get; }
 
         public static Binding Absolute(long version, string serverUrl, string domain)
         {
@@ -147,8 +178,12 @@ public sealed class WatchDestination
                 domain,
                 new Uri(root, SinkPath),
                 new Uri(root, SwitchesPath(domain)),
-                isRelative: false);
+                isRelative: false,
+                isUnbound: false);
         }
+
+        public static Binding Unbound(long version, string domain)
+            => new(version, string.Empty, domain, null, null, isRelative: false, isUnbound: true);
 
         public static Binding Relative(long version, string domain)
             => new(
@@ -157,7 +192,8 @@ public sealed class WatchDestination
                 domain,
                 new Uri(SinkPath, UriKind.Relative),
                 new Uri(SwitchesPath(domain), UriKind.Relative),
-                isRelative: true);
+                isRelative: true,
+                isUnbound: false);
 
         private const string SinkPath = "api/sink";
 

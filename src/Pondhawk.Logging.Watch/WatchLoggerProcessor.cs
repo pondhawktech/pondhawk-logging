@@ -352,6 +352,16 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         var binding = _destination.Current;
         ResetCircuitOnRebind(binding);
 
+        if (binding.IsUnbound)
+        {
+            // No server named yet. This is a configured state, not a failure: nothing is posted, no failure
+            // is counted and the circuit stays shut, so a process waiting to be told where to log does not
+            // spend that time looking broken. Warning and above is held under the same cap as an outage, so
+            // the events describing how the process came up survive to the rebind that names a destination.
+            BufferCriticalEvents(batch);
+            return;
+        }
+
         batch.Domain = binding.Domain;
 
         if (IsCircuitOpen)
@@ -371,7 +381,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
                 content.Headers.ContentType = new MediaTypeHeaderValue(LogEventBatchSerializer.ContentType);
                 content.Headers.Add("X-Domain", binding.Domain);
 
-                var response = await _client.PostAsync(binding.SinkUri, content, CancellationToken.None).ConfigureAwait(false);
+                var response = await _client.PostAsync(binding.SinkUri!, content, CancellationToken.None).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 OnSuccess();

@@ -124,6 +124,24 @@ builder.Logging.AddWatch(destination);
 destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
 ```
 
+A host that has no destination at startup — one told where to log by configuration that arrives later —
+starts unbound instead, so it never has to point at a placeholder server:
+
+```csharp
+var destination = WatchDestination.Unbound("agent");
+
+builder.Logging.AddWatch(destination);
+
+// ... when the configuration finally names one
+destination.Rebind(plan.WatchEventStoreUri, plan.WatchDomainName);
+```
+
+While unbound the provider posts nothing, polls no switches, counts no failures and leaves the circuit
+shut — not knowing where to log yet is a configured state, not an outage. Warning and above is held
+under the same cap as an outage (`MaxCriticalBufferSize`, default 1000) and delivered by the first
+successful post after the rebind, so the events describing how the process came up survive; anything
+below Warning is discarded rather than held.
+
 `AddWatch` also registers the destination as a singleton, so it can be resolved instead of captured:
 
 ```csharp
@@ -143,7 +161,7 @@ call it unconditionally.
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation), then delivers them.
 - **Switching** -- Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching (longest prefix wins). `WatchSwitchSource` polls a Watch Server for switch configuration. `AddWatch` turns the switch table into a `Microsoft.Extensions.Logging` filter that gates `IsEnabled`.
 - **HTTP delivery** -- Posts event batches to the Watch Server with a circuit breaker and critical-event buffering.
-- **WatchDestination** -- the server and domain being delivered to, re-read per batch and per switch poll so it can be rebound at runtime without rebuilding the logging factory or dropping buffered events.
+- **WatchDestination** -- the server and domain being delivered to, re-read per batch and per switch poll so it can be rebound at runtime without rebuilding the logging factory or dropping buffered events. Can start `Unbound` for a host whose destination arrives after startup.
 - **LogEvent / LogEventBatch** -- MemoryPack-serializable event model.
 
 ## Architecture
@@ -156,6 +174,12 @@ logger's category against the switch table (longest prefix wins) and compares th
 it is evaluated at `IsEnabled` — before the call site formats anything — a switch-dropped category does
 zero work. Version-based invalidation lets the polling switch source publish updates that take effect on
 the next log call without recreating loggers.
+
+That short-circuit is governed by the *category*, not by any one provider. `ILogger.IsEnabled` is true
+when **any** registered provider would keep the event, so a provider-scoped floor — the Warning filter
+`AddJournaldConsole` installs, say — never short-circuits a call site on its own. In a process running
+both providers with the switch table at Debug, a `LogDebug` call site still formats its message: Watch
+keeps the event, and the console discards it afterwards.
 
 The logging API types (`LoggingExtensions`, `MethodLogger`, `PayloadType`, `SensitiveAttribute`,
 `LogPropertyNames`, the serializers) live in `Pondhawk.Logging`, which this package references. This

@@ -382,6 +382,28 @@ public class WatchSwitchSourceTests
     // --- Rebindable destination ---
 
     [Fact]
+    public async Task UpdateAsync_WhileUnbound_PollsNothing_ThenPollsOnceRebound()
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
+            new SwitchDto { Pattern = "A", Level = (int)LogLevel.Debug }));
+
+        var destination = WatchDestination.Unbound("agent");
+        var source = new WatchSwitchSource(new HttpClient(handler), destination);
+
+        await source.UpdateAsync();
+
+        handler.Requests.ShouldBeEmpty();   // nowhere to ask
+
+        destination.Rebind("http://watch.example", "Fleet");
+
+        await source.UpdateAsync();
+
+        handler.Requests[0].RequestUri.ShouldBe(new Uri("http://watch.example/api/switches?domain=Fleet"));
+        source.Version.ShouldBe(1);         // switches applied
+    }
+
+    [Fact]
     public async Task UpdateAsync_AfterRebind_PollsTheNewDestination_AndDropsTheStaleETag()
     {
         var handler = new MockHttpHandler();
