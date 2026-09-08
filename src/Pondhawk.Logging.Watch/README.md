@@ -109,11 +109,41 @@ public class Credentials
 }
 ```
 
+### Changing the destination while running
+
+`AddWatch(serverUrl, domain)` fixes the destination for the life of the process. When the destination
+is not known at startup — an agent told where to log by configuration that arrives later — hold a
+`WatchDestination` and rebind it:
+
+```csharp
+var destination = new WatchDestination("http://localhost:11000", "MyApp");
+
+builder.Logging.AddWatch(destination);
+
+// later, when configuration names somewhere else
+destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
+```
+
+`AddWatch` also registers the destination as a singleton, so it can be resolved instead of captured:
+
+```csharp
+var destination = provider.GetRequiredService<WatchDestination>();
+```
+
+A rebind tears nothing down. Events already queued — including any held in the critical-event buffer
+during an outage — are still delivered; they go to the new destination and carry the new domain, since
+the batch's domain and the URL it is posted to are read from one snapshot. Switch polling moves to the
+new domain on the next poll (dropping the ETag it held for the old one), and the circuit breaker is
+reset so an unreachable old server does not hold the new one shut. `Rebind` returns `false` and
+disturbs nothing when handed the destination already in use, so a client polling for configuration can
+call it unconditionally.
+
 ## Key Components
 
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation), then delivers them.
 - **Switching** -- Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching (longest prefix wins). `WatchSwitchSource` polls a Watch Server for switch configuration. `AddWatch` turns the switch table into a `Microsoft.Extensions.Logging` filter that gates `IsEnabled`.
 - **HTTP delivery** -- Posts event batches to the Watch Server with a circuit breaker and critical-event buffering.
+- **WatchDestination** -- the server and domain being delivered to, re-read per batch and per switch poll so it can be rebound at runtime without rebuilding the logging factory or dropping buffered events.
 - **LogEvent / LogEventBatch** -- MemoryPack-serializable event model.
 
 ## Architecture

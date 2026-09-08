@@ -68,6 +68,161 @@ public class WatchLoggerProcessorTests
             return delivered.FirstOrDefault();
     }
 
+    // ── Rebindable destination ──
+
+    private sealed record Received(Uri Uri, string Domain, LogEventBatch Batch);
+
+    private static void CollectInto(MockHttpHandler handler, List<Received> received)
+    {
+        handler.SetHandler(async (req, ct) =>
+        {
+            var uri = req.RequestUri;
+            var domain = req.Content.Headers.TryGetValues("X-Domain", out var values)
+                ? values.FirstOrDefault()
+                : null;
+
+            var stream = await req.Content.ReadAsStreamAsync(ct);
+            var batch = await LogEventBatchSerializer.FromStream(stream);
+
+            if (batch is not null)
+            {
+                lock (received)
+                    received.Add(new Received(uri, domain, batch));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+    }
+
+    private static (ILoggerFactory Factory, List<Received> Received, WatchLoggerProcessor Processor) BuildRebindable(
+        MockHttpHandler handler,
+        WatchDestination destination,
+        int batchSize = 1,
+        int flushMs = 20,
+        bool collect = true)
+    {
+        var received = new List<Received>();
+
+        if (collect)
+            CollectInto(handler, received);
+
+        // No BaseAddress: the destination supplies absolute URIs, and must keep doing so across a rebind.
+        var processor = new WatchLoggerProcessor(
+            new HttpClient(handler),
+            new SwitchSource(),
+            destination,
+            batchSize,
+            TimeSpan.FromMilliseconds(flushMs));
+
+        var factory = LoggerFactory.Create(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Trace);
+            b.AddZLoggerLogProcessor((_, _) => processor);
+        });
+
+        return (factory, received, processor);
+    }
+
+    private static async Task<bool> WaitUntil(Func<bool> condition)
+    {
+        for (var i = 0; i < 150; i++)
+        {
+            if (condition())
+                return true;
+
+            await Task.Delay(20);
+        }
+
+        return condition();
+    }
+
+    private static int Count(List<Received> received)
+    {
+        lock (received)
+            return received.Sum(r => r.Batch.Events.Count);
+    }
+
+    [Fact]
+    public async Task Rebind_MovesSubsequentBatches_ToTheNewServerAndDomain()
+    {
+        var handler = new MockHttpHandler();
+        var destination = new WatchDestination("http://first.example", "DomainA");
+        var (factory, received, _) = BuildRebindable(handler, destination);
+
+        factory.CreateLogger("X").LogInformation("before");
+        (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
+
+        destination.Rebind("http://second.example", "DomainB").ShouldBeTrue();
+
+        factory.CreateLogger("X").LogInformation("after");
+        (await WaitUntil(() => Count(received) >= 2)).ShouldBeTrue();
+
+        Received first, last;
+        lock (received)
+        {
+            first = received[0];
+            last = received[^1];
+        }
+
+        first.Uri.ShouldBe(new Uri("http://first.example/api/sink"));
+        first.Domain.ShouldBe("DomainA");
+        first.Batch.Domain.ShouldBe("DomainA");
+
+        last.Uri.ShouldBe(new Uri("http://second.example/api/sink"));
+        last.Domain.ShouldBe("DomainB");
+        last.Batch.Domain.ShouldBe("DomainB");
+    }
+
+    [Fact]
+    public async Task Rebind_DropsNoEventsAlreadyQueued()
+    {
+        // A long flush interval leaves the events sitting in the channel when the rebind lands. Nothing is
+        // torn down, so they are still delivered — the requirement that made this rebindable rather than a
+        // matter of rebuilding the logging factory.
+        var handler = new MockHttpHandler();
+        var destination = new WatchDestination("http://first.example", "DomainA");
+        var (factory, received, _) = BuildRebindable(handler, destination, batchSize: 100, flushMs: 250);
+
+        var logger = factory.CreateLogger("X");
+        logger.LogInformation("one");
+        logger.LogInformation("two");
+        logger.LogInformation("three");
+
+        destination.Rebind("http://second.example", "DomainB");
+
+        (await WaitUntil(() => Count(received) >= 3)).ShouldBeTrue();
+        Count(received).ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Rebind_ResetsTheCircuitBreaker_SoTheNewServerIsNotHeldShut()
+    {
+        var handler = new MockHttpHandler();
+        handler.ThrowOnSend(new HttpRequestException("the old server is unreachable"));
+
+        var destination = new WatchDestination("http://down.example", "DomainA");
+        var (factory, received, processor) = BuildRebindable(handler, destination, collect: false);
+
+        var logger = factory.CreateLogger("X");
+        for (var i = 0; i < processor.FailureThreshold; i++)
+            logger.LogError("failing {N}", i);
+
+        (await WaitUntil(() => processor.IsCircuitOpen)).ShouldBeTrue();
+
+        // The circuit's backoff is measured in seconds; without a reset the next event would be buffered
+        // rather than delivered, whichever server it now belongs to.
+        CollectInto(handler, received);
+        destination.Rebind("http://up.example", "DomainB").ShouldBeTrue();
+
+        logger.LogError("after the rebind");
+
+        (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
+        processor.IsCircuitOpen.ShouldBeFalse();
+
+        lock (received)
+            received[^1].Uri.ShouldBe(new Uri("http://up.example/api/sink"));
+    }
+
     [Fact]
     public async Task Delivers_LogEvent_WithCategoryTitleAndLevel()
     {

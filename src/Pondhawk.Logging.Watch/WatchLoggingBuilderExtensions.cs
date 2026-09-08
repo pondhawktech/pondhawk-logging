@@ -3,6 +3,7 @@
 
 using System.Net.Http;
 using CommunityToolkit.Diagnostics;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ZLogger;
 
@@ -21,6 +22,13 @@ public static class WatchLoggingBuilderExtensions
     /// switch-dropped category is never formatted), and registers the ZLogger provider with the Watch
     /// delivery processor.
     /// </summary>
+    /// <remarks>
+    /// The <see cref="WatchDestination"/> this creates is registered as a singleton, so an application that
+    /// needs to change where it logs while running can resolve it and call
+    /// <see cref="WatchDestination.Rebind"/>. Applications without a service provider to resolve from can
+    /// construct the destination themselves and use
+    /// <see cref="AddWatch(ILoggingBuilder, WatchDestination, Action{WatchOptions})"/> instead.
+    /// </remarks>
     /// <param name="builder">The logging builder.</param>
     /// <param name="serverUrl">The Watch server URL.</param>
     /// <param name="domain">The domain name for log-event batches (typically the application's name).</param>
@@ -39,25 +47,65 @@ public static class WatchLoggingBuilderExtensions
         var options = new WatchOptions { ServerUrl = serverUrl, Domain = domain };
         configure?.Invoke(options);
 
-        var normalizedUrl = options.ServerUrl.TrimEnd('/') + "/";
-        var httpClient = new HttpClient { BaseAddress = new Uri(normalizedUrl) };
-        var switches = new WatchSwitchSource(httpClient, options.Domain, options.PollInterval);
+        return AddWatchCore(builder, new WatchDestination(options.ServerUrl, options.Domain), options);
+    }
+
+    /// <summary>
+    /// Adds Watch to the logging builder, delivering to a caller-owned <see cref="WatchDestination"/>. Hold
+    /// that destination and call <see cref="WatchDestination.Rebind"/> to move the process's log events to
+    /// a different Watch server or domain while it runs, without rebuilding the logging factory and without
+    /// dropping events already buffered.
+    /// </summary>
+    /// <param name="builder">The logging builder.</param>
+    /// <param name="destination">The server and domain to deliver to.</param>
+    /// <param name="configure">
+    /// An optional action to customize the Watch options. <see cref="WatchOptions.ServerUrl"/> and
+    /// <see cref="WatchOptions.Domain"/> are ignored here — <paramref name="destination"/> supplies both,
+    /// and it stays the authority for them after a rebind.
+    /// </param>
+    /// <returns>The logging builder for chaining.</returns>
+    public static ILoggingBuilder AddWatch(
+        this ILoggingBuilder builder,
+        WatchDestination destination,
+        Action<WatchOptions>? configure = null)
+    {
+        Guard.IsNotNull(builder);
+        Guard.IsNotNull(destination);
+
+        var options = new WatchOptions { ServerUrl = destination.ServerUrl, Domain = destination.Domain };
+        configure?.Invoke(options);
+
+        return AddWatchCore(builder, destination, options);
+    }
+
+    private static ILoggingBuilder AddWatchCore(
+        ILoggingBuilder builder,
+        WatchDestination destination,
+        WatchOptions options)
+    {
+        // The destination carries absolute URIs, so the client needs no base address and keeps working
+        // across a rebind to a different server.
+        var httpClient = new HttpClient();
+        var switches = new WatchSwitchSource(httpClient, destination, options.PollInterval);
         switches.WhenNotMatched(options.DefaultLevel, options.DefaultColor);
         switches.Start();
 
+        // Resolvable for applications that would rather look the destination up than capture it.
+        builder.Services.TryAddSingleton(destination);
+
         // The processor owns the HTTP client and switch source created here for it, disposing them on shutdown.
-        return builder.AddWatch(httpClient, switches, options, ownsDependencies: true);
+        return builder.AddWatch(httpClient, switches, destination, options, ownsDependencies: true);
     }
 
     /// <summary>
     /// Wires the Watch filter and ZLogger processor onto the builder from a supplied HTTP client and switch
-    /// source. The public <see cref="AddWatch(ILoggingBuilder, string, string, Action{WatchOptions})"/>
-    /// creates those; this overload lets tests inject controlled ones.
+    /// source. The public <c>AddWatch</c> overloads create those; this one lets tests inject controlled ones.
     /// </summary>
     internal static ILoggingBuilder AddWatch(
         this ILoggingBuilder builder,
         HttpClient httpClient,
         SwitchSource switches,
+        WatchDestination destination,
         WatchOptions options,
         bool ownsDependencies)
     {
@@ -72,7 +120,7 @@ public static class WatchLoggingBuilderExtensions
             new WatchLoggerProcessor(
                 httpClient,
                 switches,
-                options.Domain,
+                destination,
                 options.BatchSize,
                 options.FlushInterval,
                 ownsDependencies));

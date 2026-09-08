@@ -90,6 +90,30 @@ calls become switch-aware with no code change — see below.
 - Use `LogJson()`, `LogSql()`, `LogXml()` etc. for explicit types
 - `LogObject()` automatically uses Json type
 
+## Changing the destination at runtime
+
+`AddWatch(serverUrl, domain)` fixes the destination for the process. Where it is not known at startup,
+pass a `WatchDestination` instead and call `Rebind(serverUrl, domain)` when it changes.
+
+`WatchDestination` holds one immutable `Binding` — version, domain, and the absolute sink and switches
+URIs — replaced wholesale on a rebind. `WatchLoggerProcessor` reads a binding once per batch and
+`WatchSwitchSource` once per poll, which is what makes the change safe:
+
+- **Nothing is torn down.** The channel, the critical-event buffer, and the `HttpClient` all survive, so
+  events already queued are delivered rather than dropped. They go to the *new* destination and carry the
+  new domain — unlike rebuilding the factory, which sends in-flight events to the old one.
+- **The batch domain and the post URL cannot disagree**, because both come from the same snapshot even if
+  a rebind lands mid-flight.
+- **The switch source drops its ETag** on a version change. The server's ETag is content-derived over the
+  switch set, so a stale one is harmless in practice, but sending it on would mean claiming to hold the new
+  domain's switches while holding the old domain's.
+- **The circuit breaker resets**, since failures against a server we no longer post to say nothing about
+  the one we do.
+
+`Rebind` returns `false` and disturbs nothing when handed the destination already in use, so a client that
+re-reads configuration can call it unconditionally. A domain-only destination (the shape behind the
+constructors that resolve against `HttpClient.BaseAddress`) cannot be rebound and throws.
+
 ## Switch-based level gating
 
 `AddWatch` registers a `Microsoft.Extensions.Logging` filter that matches a logger's category against the
@@ -124,6 +148,11 @@ builder.Logging.AddWatch("http://localhost:11000", "MyApp", opts =>
     opts.BatchSize = 50;
     opts.PollInterval = TimeSpan.FromSeconds(15);
 });
+
+// Rebindable — for a destination that is not known until configuration arrives
+var destination = new WatchDestination("http://localhost:11000", "MyApp");
+builder.Logging.AddWatch(destination);
+destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
 
 // Standalone factory
 using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000", "MyApp"));
@@ -191,6 +220,7 @@ src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)
+  WatchDestination.cs                   # The server + domain delivered to; rebindable at runtime
   WatchOptions.cs                       # Options for AddWatch
 
   # Switching

@@ -44,6 +44,22 @@ public static class LoggingFactoryLocator
                 "LoggingFactoryLocator.GetFactory was called before SetFactory; set the factory during logging startup.");
     }
 
-    /// <summary>Clears the locator. A test-only escape hatch for the set-once contract.</summary>
-    internal static void Reset() => Interlocked.Exchange(ref _factory, null);
+    /// <summary>
+    /// Clears the locator so a subsequent <see cref="SetFactory"/> succeeds. For tests only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The set-once contract is deliberate for an application — a process has one logging configuration,
+    /// established at startup — but a test assembly is not one application, and a test harness needs a way
+    /// out. Standing logging up per fixture (NUnit's <c>[OneTimeSetUp]</c>, xUnit's per-class lifetime) runs
+    /// the setup once per fixture, so the second fixture's <see cref="SetFactory"/> would throw.
+    /// </para>
+    /// <para>
+    /// Prefer standing logging up once for the whole assembly — NUnit's assembly-level
+    /// <c>[SetUpFixture]</c>, or an xUnit assembly fixture — and reach for this only where a test genuinely
+    /// needs to swap the factory. Note that a per-fixture setup that also disposes the factory in teardown
+    /// will tear down logging other fixtures are still using, which resetting the locator does not fix.
+    /// </para>
+    /// </remarks>
+    public static void ResetForTesting() => Interlocked.Exchange(ref _factory, null);
 }

@@ -43,6 +43,40 @@ gates on `ILogger.IsEnabled`, a provider that makes `IsEnabled` switch-aware (as
 does, via a level filter) makes the entire API skip work for switch-dropped categories — with no change
 to calling code.
 
+## Standing logging up in tests
+
+`LoggingFactoryLocator.SetFactory` may be called only once per process — a process has one logging
+configuration, established at startup. A test assembly is not one application, though, and the natural
+per-fixture setup (NUnit's `[OneTimeSetUp]`, xUnit's per-class lifetime) runs once per *fixture*, so
+every fixture after the first would throw.
+
+**Stand logging up once for the whole assembly.** In NUnit that is an assembly-level `[SetUpFixture]`:
+
+```csharp
+[SetUpFixture]                      // no namespace declaration: applies to the whole assembly
+public class LoggingSetup
+{
+    private static ILoggerFactory _factory;
+
+    [OneTimeSetUp]
+    public void SetUp()
+    {
+        _factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000", "Tests"));
+        LoggingFactoryLocator.SetFactory(_factory);
+    }
+
+    [OneTimeTearDown]
+    public void TearDown() => _factory?.Dispose();
+}
+```
+
+The equivalent in xUnit is an assembly fixture. Either way the factory is built once and disposed once —
+which matters beyond the locator: a per-fixture teardown that disposes the factory tears down logging
+that other fixtures are still using.
+
+Where a test genuinely needs to swap the factory, `LoggingFactoryLocator.ResetForTesting()` clears the
+locator so the next `SetFactory` succeeds.
+
 ## Usage
 
 Inject `ILoggerFactory`, create a category logger, and call the API on it:

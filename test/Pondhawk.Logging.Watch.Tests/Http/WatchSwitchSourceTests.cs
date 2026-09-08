@@ -39,7 +39,7 @@ public class WatchSwitchSourceTests
         var handler = new MockHttpHandler();
         var client = CreateClient(handler);
 
-        Should.Throw<ArgumentNullException>(() => new WatchSwitchSource(client, null));
+        Should.Throw<ArgumentNullException>(() => new WatchSwitchSource(client, (string)null));
     }
 
     // --- Defaults ---
@@ -377,6 +377,33 @@ public class WatchSwitchSourceTests
             response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(current);
             return Task.FromResult(response);
         });
+    }
+
+    // --- Rebindable destination ---
+
+    [Fact]
+    public async Task UpdateAsync_AfterRebind_PollsTheNewDestination_AndDropsTheStaleETag()
+    {
+        var handler = new MockHttpHandler();
+        ServeConditional(handler, () => "\"v1\"",
+            () => [new SwitchDto { Pattern = "A", Level = (int)LogLevel.Debug }]);
+
+        var destination = new WatchDestination("http://first.example", "d1");
+        var source = new WatchSwitchSource(new HttpClient(handler), destination);
+
+        await source.UpdateAsync();            // 200, remembers "v1"
+        await source.UpdateAsync();            // If-None-Match "v1" -> 304
+
+        destination.Rebind("http://second.example", "d2");
+
+        await source.UpdateAsync();
+
+        var afterRebind = handler.Requests[^1];
+        afterRebind.RequestUri.ShouldBe(new Uri("http://second.example/api/switches?domain=d2"));
+
+        // The ETag named a switch set on the server we left. Sending it on could earn a 304 that leaves us
+        // holding the old domain's switches while believing they are the new domain's.
+        afterRebind.Headers.Contains("If-None-Match").ShouldBeFalse();
     }
 
     [Fact]

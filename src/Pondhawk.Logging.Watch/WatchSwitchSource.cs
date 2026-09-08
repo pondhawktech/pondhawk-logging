@@ -25,7 +25,7 @@ namespace Pondhawk.Logging.Watch;
 public class WatchSwitchSource : SwitchSource, IAsyncDisposable
 {
     private readonly HttpClient _client;
-    private readonly string _domain;
+    private readonly WatchDestination _destination;
     private readonly TimeSpan _pollInterval;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _startLock = new();
@@ -35,8 +35,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     private int _lifecycleDisposed;
 
     // The ETag of the last switch set we applied. Sent back as If-None-Match so the server can answer
-    // 304 Not Modified when nothing changed, letting us skip both the download and the rebuild.
+    // 304 Not Modified when nothing changed, letting us skip both the download and the rebuild. It belongs
+    // to the destination binding it was fetched under, so a rebind discards it.
     private string? _lastETag;
+    private long _eTagBindingVersion;
 
     /// <summary>
     /// Gets or sets whether polling is enabled. Default is true.
@@ -44,21 +46,40 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     public bool PollingEnabled { get; set; } = true;
 
     /// <summary>
-    /// Creates a new WatchSwitchSource.
+    /// Creates a switch source for a fixed domain, resolved against the client's base address.
     /// </summary>
     /// <param name="client">The HTTP client to use for requests.</param>
     /// <param name="domain">The domain name to fetch switches for.</param>
     /// <param name="pollInterval">The interval between polls. Default is 5 seconds.</param>
     public WatchSwitchSource(HttpClient client, string domain, TimeSpan? pollInterval = null)
+        : this(client, NewRelativeDestination(domain), pollInterval)
+    {
+    }
+
+    /// <summary>
+    /// Creates a switch source for <paramref name="destination"/>, re-read on every poll so a
+    /// <see cref="WatchDestination.Rebind"/> moves switch polling to the new server and domain.
+    /// </summary>
+    /// <param name="client">The HTTP client to use for requests.</param>
+    /// <param name="destination">The server and domain to fetch switches for.</param>
+    /// <param name="pollInterval">The interval between polls. Default is 5 seconds.</param>
+    public WatchSwitchSource(HttpClient client, WatchDestination destination, TimeSpan? pollInterval = null)
     {
         Guard.IsNotNull(client);
-        Guard.IsNotNull(domain);
+        Guard.IsNotNull(destination);
 
         _client = client;
-        _domain = domain;
+        _destination = destination;
+        _eTagBindingVersion = destination.Current.Version;
         // Conditional polling (If-None-Match) makes an unchanged poll a tiny 304 with no rebuild, so a
         // short interval is cheap and gives near-real-time switch propagation.
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(5);
+    }
+
+    private static WatchDestination NewRelativeDestination(string domain)
+    {
+        Guard.IsNotNull(domain);
+        return new WatchDestination(domain);
     }
 
     /// <summary>
@@ -101,8 +122,17 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     {
         try
         {
-            var url = $"api/switches?domain={Uri.EscapeDataString(_domain)}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var binding = _destination.Current;
+
+            // An ETag names a switch set on the server we fetched it from. After a rebind it would have us
+            // claim to hold the new domain's switches when we hold the old domain's, so drop it.
+            if (_eTagBindingVersion != binding.Version)
+            {
+                _eTagBindingVersion = binding.Version;
+                _lastETag = null;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, binding.SwitchesUri);
             if (_lastETag is not null)
                 request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);
 
