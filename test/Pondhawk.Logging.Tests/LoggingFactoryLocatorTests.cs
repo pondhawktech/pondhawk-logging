@@ -11,9 +11,9 @@ namespace Pondhawk.Logging.Tests;
 // test and these do not race a parallel test class (only this class touches the locator).
 public class LoggingFactoryLocatorTests : IDisposable
 {
-    public LoggingFactoryLocatorTests() => LoggingFactoryLocator.Reset();
+    public LoggingFactoryLocatorTests() => LoggingFactoryLocator.ResetForTesting();
 
-    public void Dispose() => LoggingFactoryLocator.Reset();
+    public void Dispose() => LoggingFactoryLocator.ResetForTesting();
 
     [Fact]
     public void SetFactory_MayBeCalledOnce_SecondCallThrows()
@@ -28,6 +28,21 @@ public class LoggingFactoryLocatorTests : IDisposable
     public void GetFactory_BeforeSet_Throws()
     {
         Should.Throw<InvalidOperationException>(() => LoggingFactoryLocator.GetFactory());
+    }
+
+    [Fact]
+    public void ResetForTesting_LetsAFixtureSetTheFactoryAgain()
+    {
+        // The escape hatch a test harness needs: standing logging up per fixture — NUnit's [OneTimeSetUp],
+        // xUnit's per-class lifetime — runs the setup once per fixture, and the set-once contract would
+        // fail every fixture after the first.
+        LoggingFactoryLocator.SetFactory(new RecordingLoggerFactory());
+
+        LoggingFactoryLocator.ResetForTesting();
+
+        var second = new RecordingLoggerFactory();
+        LoggingFactoryLocator.SetFactory(second);
+        LoggingFactoryLocator.GetFactory().ShouldBeSameAs(second);
     }
 
     [Fact]

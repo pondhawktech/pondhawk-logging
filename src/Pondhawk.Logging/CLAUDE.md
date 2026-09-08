@@ -226,6 +226,14 @@ detaches it from the exception it explains; this keeps both on one event. A sink
 
 ---
 
+### Logging in Tests
+
+`LoggingFactoryLocator.SetFactory` is set-once. Per-fixture setup (NUnit `[OneTimeSetUp]`, xUnit's
+per-class lifetime) runs once per fixture, so stand logging up once for the **assembly** instead — NUnit's
+assembly-level `[SetUpFixture]`, or an xUnit assembly fixture. That also avoids a per-fixture teardown
+disposing a factory other fixtures are still using. `LoggingFactoryLocator.ResetForTesting()` clears the
+locator where a test genuinely needs to swap factories.
+
 ## Property-Name Contract
 
 `LogPropertyNames` (public) defines the well-known log-state property names the API attaches and sinks

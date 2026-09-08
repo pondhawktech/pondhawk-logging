@@ -54,6 +54,19 @@ logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 
 `[Sensitive]` masks a property when an object is serialized. Also included: `CorrelationManager`, the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
 
+### Changing the Watch destination while running
+
+`AddWatch(serverUrl, domain)` fixes the destination for the life of the process. For an application told
+where to log after it has started, hold a `WatchDestination` instead and rebind it — nothing is torn
+down, so events already queued are delivered rather than dropped:
+
+```csharp
+var destination = new WatchDestination("http://localhost:11000", "MyApp");
+builder.Logging.AddWatch(destination);
+
+destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
+```
+
 ### Acquiring loggers
 
 Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type:

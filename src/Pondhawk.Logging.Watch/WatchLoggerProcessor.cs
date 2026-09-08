@@ -41,7 +41,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private readonly HttpClient _client;
     private readonly SwitchSource _switchSource;
     private readonly bool _ownsDependencies;
-    private readonly string _domain;
+    private readonly WatchDestination _destination;
     private readonly int _batchSize;
     private readonly TimeSpan _flushInterval;
 
@@ -50,9 +50,11 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private readonly TaskCompletionSource<bool> _flushCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _disposed;
 
-    // Circuit breaker state
+    // Circuit breaker state, plus the destination binding the failures were accumulated against: a
+    // rebind moves us to a different server, whose reachability the old one says nothing about.
     private int _consecutiveFailures;
     private DateTime _circuitOpenUntil = DateTime.MinValue;
+    private long _circuitBindingVersion;
     private readonly object _circuitLock = new();
 
     // Critical event buffer
@@ -89,7 +91,10 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     /// <summary>Gets the total number of events dropped due to buffer overflow.</summary>
     public long DroppedEventCount => Interlocked.Read(ref _droppedEventCount);
 
-    /// <summary>Initializes a new instance of the <see cref="WatchLoggerProcessor"/> class.</summary>
+    /// <summary>
+    /// Initializes a processor delivering to a fixed domain, posting to the
+    /// <see cref="HttpClient.BaseAddress"/> of <paramref name="client"/>.
+    /// </summary>
     /// <param name="client">The <see cref="HttpClient"/> used to post event batches to the Watch Server.</param>
     /// <param name="switchSource">The switch source consulted for per-event color and tag.</param>
     /// <param name="domain">The domain name included in each batch.</param>
@@ -106,15 +111,41 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         int batchSize = 100,
         TimeSpan? flushInterval = null,
         bool ownsDependencies = false)
+        : this(client, switchSource, NewRelativeDestination(domain), batchSize, flushInterval, ownsDependencies)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a processor delivering to <paramref name="destination"/>, re-read for every batch so a
+    /// <see cref="WatchDestination.Rebind"/> takes effect without rebuilding anything or dropping events
+    /// already queued.
+    /// </summary>
+    /// <param name="client">The <see cref="HttpClient"/> used to post event batches to the Watch Server.</param>
+    /// <param name="switchSource">The switch source consulted for per-event color and tag.</param>
+    /// <param name="destination">The server and domain to deliver to.</param>
+    /// <param name="batchSize">Maximum events per batch before flushing.</param>
+    /// <param name="flushInterval">Maximum time before flushing a partial batch. Defaults to 100ms.</param>
+    /// <param name="ownsDependencies">
+    /// When <see langword="true"/>, the processor disposes <paramref name="switchSource"/> and
+    /// <paramref name="client"/> on disposal; otherwise it only stops the switch source.
+    /// </param>
+    public WatchLoggerProcessor(
+        HttpClient client,
+        SwitchSource switchSource,
+        WatchDestination destination,
+        int batchSize = 100,
+        TimeSpan? flushInterval = null,
+        bool ownsDependencies = false)
     {
         Guard.IsNotNull(client);
         Guard.IsNotNull(switchSource);
-        Guard.IsNotNull(domain);
+        Guard.IsNotNull(destination);
 
         _client = client;
         _switchSource = switchSource;
         _ownsDependencies = ownsDependencies;
-        _domain = domain;
+        _destination = destination;
+        _circuitBindingVersion = destination.Current.Version;
         _batchSize = batchSize;
         _flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(100);
 
@@ -125,6 +156,12 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         });
 
         _flushTask = Task.Run(FlushLoopAsync);
+    }
+
+    private static WatchDestination NewRelativeDestination(string domain)
+    {
+        Guard.IsNotNull(domain);
+        return new WatchDestination(domain);
     }
 
     /// <summary>
@@ -300,9 +337,9 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private LogEventBatch BuildBatch(List<LogEvent> events)
+    private static LogEventBatch BuildBatch(List<LogEvent> events)
     {
-        var batch = new LogEventBatch { Domain = _domain };
+        var batch = new LogEventBatch();
         foreach (var logEvent in events)
             batch.Events.Add(logEvent);
         return batch;
@@ -310,6 +347,13 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
     private async Task SendBatchAsync(LogEventBatch batch)
     {
+        // One snapshot for the whole send, so the domain stamped on the batch and the URL it is posted to
+        // cannot disagree even if a rebind lands mid-flight.
+        var binding = _destination.Current;
+        ResetCircuitOnRebind(binding);
+
+        batch.Domain = binding.Domain;
+
         if (IsCircuitOpen)
         {
             BufferCriticalEvents(batch);
@@ -325,9 +369,9 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             {
                 using var content = new StreamContent(stream);
                 content.Headers.ContentType = new MediaTypeHeaderValue(LogEventBatchSerializer.ContentType);
-                content.Headers.Add("X-Domain", _domain);
+                content.Headers.Add("X-Domain", binding.Domain);
 
-                var response = await _client.PostAsync("api/sink", content, CancellationToken.None).ConfigureAwait(false);
+                var response = await _client.PostAsync(binding.SinkUri, content, CancellationToken.None).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 OnSuccess();
@@ -336,6 +380,24 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         catch
         {
             OnFailure(batch);
+        }
+    }
+
+    /// <summary>
+    /// Clears circuit state carried over from a previous destination. Failures against a server we no
+    /// longer post to say nothing about the one we do, and an open circuit would otherwise keep the new
+    /// destination shut for the remainder of the backoff.
+    /// </summary>
+    private void ResetCircuitOnRebind(WatchDestination.Binding binding)
+    {
+        lock (_circuitLock)
+        {
+            if (_circuitBindingVersion == binding.Version)
+                return;
+
+            _circuitBindingVersion = binding.Version;
+            _consecutiveFailures = 0;
+            _circuitOpenUntil = DateTime.MinValue;
         }
     }
 
