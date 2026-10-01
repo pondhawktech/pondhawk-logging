@@ -4,11 +4,11 @@ import { ulid } from './ulid.js';
 const winstonToWatchLevel = {
     error: Level.Error,
     warn: Level.Warning,
-    info: Level.Info,
+    info: Level.Information,
     http: Level.Debug,
     verbose: Level.Debug,
     debug: Level.Debug,
-    silly: Level.Trace,
+    silly: Level.Verbose,
 };
 export class WatchTransport extends Transport {
     serverUrl;
@@ -29,7 +29,7 @@ export class WatchTransport extends Transport {
         this.timer.unref();
     }
     log(info, callback) {
-        const level = winstonToWatchLevel[info.level] ?? Level.Info;
+        const level = winstonToWatchLevel[info.level] ?? Level.Information;
         const { level: _level, message, timestamp: _timestamp, [Symbol.for('level')]: _lvl, [Symbol.for('splat')]: _splat, ...metadata } = info;
         const event = {
             Category: this.category,

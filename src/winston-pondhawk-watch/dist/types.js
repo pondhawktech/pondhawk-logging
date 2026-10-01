@@ -1,10 +1,11 @@
 export var Level;
 (function (Level) {
-    Level[Level["Trace"] = 0] = "Trace";
+    Level[Level["Verbose"] = 0] = "Verbose";
     Level[Level["Debug"] = 1] = "Debug";
-    Level[Level["Info"] = 2] = "Info";
+    Level[Level["Information"] = 2] = "Information";
     Level[Level["Warning"] = 3] = "Warning";
     Level[Level["Error"] = 4] = "Error";
+    Level[Level["Fatal"] = 5] = "Fatal";
 })(Level || (Level = {}));
 export var PayloadType;
 (function (PayloadType) {

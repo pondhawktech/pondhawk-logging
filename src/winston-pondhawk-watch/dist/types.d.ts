@@ -1,9 +1,10 @@
 export declare enum Level {
-    Trace = 0,
+    Verbose = 0,
     Debug = 1,
-    Info = 2,
+    Information = 2,
     Warning = 3,
-    Error = 4
+    Error = 4,
+    Fatal = 5
 }
 export declare enum PayloadType {
     None = 0,
