@@ -1,6 +1,7 @@
 import Transport from 'winston-transport';
 import { Level, PayloadType } from './types.js';
 import { ulid } from './ulid.js';
+import { parseWatchUrl } from './watchUrl.js';
 const winstonToWatchLevel = {
     error: Level.Error,
     warn: Level.Warning,
@@ -11,8 +12,8 @@ const winstonToWatchLevel = {
     silly: Level.Verbose,
 };
 export class WatchTransport extends Transport {
-    serverUrl;
-    domain;
+    watchUrl;
+    sinkUrl;
     category;
     batchSize;
     flushIntervalMs;
@@ -20,9 +21,9 @@ export class WatchTransport extends Transport {
     timer = null;
     constructor(opts) {
         super(opts);
-        this.serverUrl = opts.serverUrl.replace(/\/+$/, '');
-        this.domain = opts.domain;
-        this.category = opts.category ?? opts.domain;
+        this.watchUrl = parseWatchUrl(opts.url);
+        this.sinkUrl = new URL('api/sink', this.watchUrl.baseUrl).href;
+        this.category = opts.category ?? this.watchUrl.domain;
         this.batchSize = opts.batchSize ?? 50;
         this.flushIntervalMs = opts.flushInterval ?? 2000;
         this.timer = setInterval(() => this.flush(), this.flushIntervalMs);
@@ -75,17 +76,21 @@ export class WatchTransport extends Transport {
         this.buffer = [];
         const batch = {
             Uid: ulid(),
-            Domain: this.domain,
+            Domain: this.watchUrl.domain,
             Events: events,
         };
         try {
-            const response = await fetch(`${this.serverUrl}/api/sink`, {
+            const headers = { 'Content-Type': 'application/json' };
+            if (this.watchUrl.apiKey !== null) {
+                headers.Authorization = `Bearer ${this.watchUrl.apiKey}`;
+            }
+            const response = await fetch(this.sinkUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(batch),
             });
             if (!response.ok) {
-                console.error(`winston-pondhawk-watch: HTTP ${response.status} posting to ${this.serverUrl}/api/sink`);
+                console.error(`winston-pondhawk-watch: HTTP ${response.status} posting to ${this.watchUrl.redacted}`);
             }
         }
         catch (err) {

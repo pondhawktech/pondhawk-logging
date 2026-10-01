@@ -27,8 +27,7 @@ describe('WatchTransport', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     transport = new WatchTransport({
-      serverUrl: 'http://localhost:11000',
-      domain: 'TestApp',
+      url: 'http://localhost:11000/TestApp',
       batchSize: 10,
       flushInterval: 60000, // Long interval so we control flushing manually
     });
@@ -82,8 +81,7 @@ describe('WatchTransport', () => {
     it('uses custom category when provided', async () => {
       transport.close();
       transport = new WatchTransport({
-        serverUrl: 'http://localhost:11000',
-        domain: 'TestApp',
+        url: 'http://localhost:11000/TestApp',
         category: 'CustomCategory',
         batchSize: 10,
         flushInterval: 60000,
@@ -172,8 +170,7 @@ describe('WatchTransport', () => {
       vi.useFakeTimers();
 
       const timerTransport = new WatchTransport({
-        serverUrl: 'http://localhost:11000',
-        domain: 'TestApp',
+        url: 'http://localhost:11000/TestApp',
         batchSize: 100,
         flushInterval: 1000,
       });
@@ -333,11 +330,10 @@ describe('WatchTransport', () => {
       );
     });
 
-    it('strips trailing slash from serverUrl', async () => {
+    it('accepts a trailing slash after the domain', async () => {
       transport.close();
       transport = new WatchTransport({
-        serverUrl: 'http://localhost:11000/',
-        domain: 'TestApp',
+        url: 'http://localhost:11000/TestApp/',
         batchSize: 10,
         flushInterval: 60000,
       });
@@ -345,10 +341,43 @@ describe('WatchTransport', () => {
       logMessage(transport, 'info', 'test');
       await transport.flush();
 
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:11000/api/sink',
-        expect.any(Object)
-      );
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:11000/api/sink', expect.any(Object));
+      expect(JSON.parse(fetchSpy.mock.calls[0][1].body).Domain).toBe('TestApp');
+    });
+
+    it('posts under a base path', async () => {
+      transport.close();
+      transport = new WatchTransport({ url: 'https://ingest.example.com/watch/TestApp', batchSize: 10, flushInterval: 60000 });
+
+      logMessage(transport, 'info', 'test');
+      await transport.flush();
+
+      expect(fetchSpy).toHaveBeenCalledWith('https://ingest.example.com/watch/api/sink', expect.any(Object));
+    });
+
+    it('sends the API key as a Bearer header, never in the URL', async () => {
+      transport.close();
+      transport = new WatchTransport({ url: 'https://pwk_a1_secret@watch.example.com/TestApp', batchSize: 10, flushInterval: 60000 });
+
+      logMessage(transport, 'info', 'test');
+      await transport.flush();
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('https://watch.example.com/api/sink');
+      expect(init.headers.Authorization).toBe('Bearer pwk_a1_secret');
+    });
+
+    it('never logs the key when a post fails', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchSpy.mockResolvedValue({ ok: false, status: 401 });
+      transport.close();
+      transport = new WatchTransport({ url: 'https://pwk_a1_secret@watch.example.com/TestApp', batchSize: 10, flushInterval: 60000 });
+
+      logMessage(transport, 'info', 'test');
+      await transport.flush();
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('https://***@watch.example.com/TestApp'));
+      expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('secret');
     });
   });
 });
