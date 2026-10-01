@@ -161,7 +161,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private static WatchDestination NewRelativeDestination(string domain)
     {
         Guard.IsNotNull(domain);
-        return new WatchDestination(domain);
+        return WatchDestination.Relative(domain);
     }
 
     /// <summary>
@@ -381,7 +381,11 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
                 content.Headers.ContentType = new MediaTypeHeaderValue(LogEventBatchSerializer.ContentType);
                 content.Headers.Add("X-Domain", binding.Domain);
 
-                var response = await _client.PostAsync(binding.SinkUri!, content, CancellationToken.None).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Post, binding.SinkUri) { Content = content };
+                if (binding.ApiKey is not null)
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", binding.ApiKey);
+
+                using var response = await _client.SendAsync(request, CancellationToken.None).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 OnSuccess();

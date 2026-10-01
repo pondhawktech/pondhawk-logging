@@ -22,8 +22,8 @@ public class AddWatchTests
 
     private static ILoggerFactory BuildFactory(SwitchSource switches)
     {
-        var options = new WatchOptions { Domain = "D" };
-        var destination = new WatchDestination("http://localhost/", "D");
+        var options = new WatchOptions();
+        var destination = new WatchDestination("http://localhost/D");
         return LoggerFactory.Create(b =>
             b.AddWatch(CreateClient(new MockHttpHandler()), switches, destination, options, ownsDependencies: false));
     }
@@ -47,7 +47,7 @@ public class AddWatchTests
     {
         // Port 9 (discard) refuses immediately, so the switch source's initial fetch fails fast rather
         // than waiting on a server this test has no interest in.
-        var destination = new WatchDestination("http://127.0.0.1:9", "D");
+        var destination = new WatchDestination("http://127.0.0.1:9/D");
 
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddWatch(destination, o => o.PollInterval = TimeSpan.FromMinutes(5)));

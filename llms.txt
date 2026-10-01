@@ -37,10 +37,10 @@ Install: `dotnet add package Pondhawk.Logging.Watch`
 using Microsoft.Extensions.Logging;
 using Pondhawk.Logging.Watch;
 
-builder.Logging.AddWatch("http://localhost:11000", "MyApp");   // Watch Server controls levels via switches
+builder.Logging.AddWatch("http://localhost:11000/MyApp");   // Watch Server controls levels via switches
 ```
 **Key types (`Pondhawk.Logging.Watch` namespace):**
-- `WatchLoggingBuilderExtensions` — `AddWatch(this ILoggingBuilder, serverUrl, domain, configure?)`: registers a level filter driven by the switch table and a ZLogger delivery processor
+- `WatchLoggingBuilderExtensions` — `AddWatch(this ILoggingBuilder, watchUrl, configure?)`: registers a level filter driven by the switch table and a ZLogger delivery processor
 - `WatchLoggerProcessor` — a ZLogger `IAsyncLogProcessor` with unbounded `Channel<T>` batching and a circuit breaker; events serialized as MemoryPack
 - `SwitchSource` / `SwitchDef` / `WatchSwitchSource` — dynamic per-category level control (longest-prefix match); `WatchSwitchSource` polls a Watch Server
 - `LogEvent` / `LogEventBatch` — the wire event model

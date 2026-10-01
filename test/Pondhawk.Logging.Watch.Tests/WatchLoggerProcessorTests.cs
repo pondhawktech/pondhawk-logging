@@ -70,7 +70,7 @@ public class WatchLoggerProcessorTests
 
     // ── Rebindable destination ──
 
-    private sealed record Received(Uri Uri, string Domain, LogEventBatch Batch);
+    private sealed record Received(Uri Uri, string Domain, LogEventBatch Batch, string Authorization);
 
     private static void CollectInto(MockHttpHandler handler, List<Received> received)
     {
@@ -87,7 +87,7 @@ public class WatchLoggerProcessorTests
             if (batch is not null)
             {
                 lock (received)
-                    received.Add(new Received(uri, domain, batch));
+                    received.Add(new Received(uri, domain, batch, req.Headers.Authorization?.ToString()));
             }
 
             return new HttpResponseMessage(HttpStatusCode.OK);
@@ -146,13 +146,13 @@ public class WatchLoggerProcessorTests
     public async Task Rebind_MovesSubsequentBatches_ToTheNewServerAndDomain()
     {
         var handler = new MockHttpHandler();
-        var destination = new WatchDestination("http://first.example", "DomainA");
+        var destination = new WatchDestination("http://first.example/DomainA");
         var (factory, received, _) = BuildRebindable(handler, destination);
 
         factory.CreateLogger("X").LogInformation("before");
         (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
 
-        destination.Rebind("http://second.example", "DomainB").ShouldBeTrue();
+        destination.Rebind("http://second.example/DomainB").ShouldBeTrue();
 
         factory.CreateLogger("X").LogInformation("after");
         (await WaitUntil(() => Count(received) >= 2)).ShouldBeTrue();
@@ -174,13 +174,67 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task ApiKey_IsSentAsBearer_AndNeverInTheUri()
+    {
+        var handler = new MockHttpHandler();
+        var destination = new WatchDestination("https://pwk_a1_secret@watch.example/DomainA");
+        var (factory, received, _) = BuildRebindable(handler, destination);
+
+        factory.CreateLogger("X").LogInformation("keyed");
+        (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
+
+        Received sent;
+        lock (received)
+            sent = received[0];
+
+        sent.Authorization.ShouldBe("Bearer pwk_a1_secret");
+        sent.Uri.ShouldBe(new Uri("https://watch.example/api/sink"));
+        sent.Uri.UserInfo.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Rebind_RotatesTheKey()
+    {
+        var handler = new MockHttpHandler();
+        var destination = new WatchDestination("https://pwk_a1_old@watch.example/DomainA");
+        var (factory, received, _) = BuildRebindable(handler, destination);
+
+        factory.CreateLogger("X").LogInformation("before");
+        (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
+
+        destination.Rebind("https://pwk_a2_new@watch.example/DomainA").ShouldBeTrue();
+
+        factory.CreateLogger("X").LogInformation("after");
+        (await WaitUntil(() => Count(received) >= 2)).ShouldBeTrue();
+
+        lock (received)
+        {
+            received[0].Authorization.ShouldBe("Bearer pwk_a1_old");
+            received[^1].Authorization.ShouldBe("Bearer pwk_a2_new");
+        }
+    }
+
+    [Fact]
+    public async Task NoKey_SendsNoAuthorization()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, received, _) = BuildRebindable(handler, new WatchDestination("http://localhost:11000/DomainA"));
+
+        factory.CreateLogger("X").LogInformation("open");
+        (await WaitUntil(() => Count(received) >= 1)).ShouldBeTrue();
+
+        lock (received)
+            received[0].Authorization.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Rebind_DropsNoEventsAlreadyQueued()
     {
         // A long flush interval leaves the events sitting in the channel when the rebind lands. Nothing is
         // torn down, so they are still delivered — the requirement that made this rebindable rather than a
         // matter of rebuilding the logging factory.
         var handler = new MockHttpHandler();
-        var destination = new WatchDestination("http://first.example", "DomainA");
+        var destination = new WatchDestination("http://first.example/DomainA");
         var (factory, received, _) = BuildRebindable(handler, destination, batchSize: 100, flushMs: 250);
 
         var logger = factory.CreateLogger("X");
@@ -188,7 +242,7 @@ public class WatchLoggerProcessorTests
         logger.LogInformation("two");
         logger.LogInformation("three");
 
-        destination.Rebind("http://second.example", "DomainB");
+        destination.Rebind("http://second.example/DomainB");
 
         (await WaitUntil(() => Count(received) >= 3)).ShouldBeTrue();
         Count(received).ShouldBe(3);
@@ -200,7 +254,7 @@ public class WatchLoggerProcessorTests
         var handler = new MockHttpHandler();
         handler.ThrowOnSend(new HttpRequestException("the old server is unreachable"));
 
-        var destination = new WatchDestination("http://down.example", "DomainA");
+        var destination = new WatchDestination("http://down.example/DomainA");
         var (factory, received, processor) = BuildRebindable(handler, destination, collect: false);
 
         var logger = factory.CreateLogger("X");
@@ -212,7 +266,7 @@ public class WatchLoggerProcessorTests
         // The circuit's backoff is measured in seconds; without a reset the next event would be buffered
         // rather than delivered, whichever server it now belongs to.
         CollectInto(handler, received);
-        destination.Rebind("http://up.example", "DomainB").ShouldBeTrue();
+        destination.Rebind("http://up.example/DomainB").ShouldBeTrue();
 
         logger.LogError("after the rebind");
 
@@ -227,7 +281,7 @@ public class WatchLoggerProcessorTests
     public async Task Unbound_PostsNothing_AndKeepsTheCircuitShut()
     {
         var handler = new MockHttpHandler();
-        var (factory, _, processor) = BuildRebindable(handler, WatchDestination.Unbound("agent"));
+        var (factory, _, processor) = BuildRebindable(handler, WatchDestination.Unbound());
 
         var logger = factory.CreateLogger("X");
         for (var i = 0; i < processor.FailureThreshold + 2; i++)
@@ -245,7 +299,7 @@ public class WatchLoggerProcessorTests
     public async Task Unbound_HoldsWarningAndAbove_AndDeliversThemOnceRebound()
     {
         var handler = new MockHttpHandler();
-        var destination = WatchDestination.Unbound("agent");
+        var destination = WatchDestination.Unbound();
         var (factory, received, processor) = BuildRebindable(handler, destination);
 
         var logger = factory.CreateLogger("X");
@@ -254,7 +308,7 @@ public class WatchLoggerProcessorTests
 
         (await WaitUntil(() => processor.CriticalBufferCount >= 1)).ShouldBeTrue();
 
-        destination.Rebind("http://watch.example", "Fleet").ShouldBeTrue();
+        destination.Rebind("http://watch.example/Fleet").ShouldBeTrue();
         logger.LogInformation("post-plan");
 
         (await WaitUntil(() => Count(received) >= 2)).ShouldBeTrue();

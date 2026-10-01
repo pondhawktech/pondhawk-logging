@@ -92,10 +92,10 @@ calls become switch-aware with no code change — see below.
 
 ## Changing the destination at runtime
 
-`AddWatch(serverUrl, domain)` fixes the destination for the process. Where it is not known at startup,
-pass a `WatchDestination` instead and call `Rebind(serverUrl, domain)` when it changes.
+`AddWatch(watchUrl)` fixes the destination for the process. Where it is not known at startup,
+pass a `WatchDestination` instead and call `Rebind(watchUrl)` when it changes.
 
-`WatchDestination` holds one immutable `Binding` — version, domain, and the absolute sink and switches
+`WatchDestination` holds one immutable `Binding` — version, domain, optional API key, and the absolute sink and switches
 URIs — replaced wholesale on a rebind. `WatchLoggerProcessor` reads a binding once per batch and
 `WatchSwitchSource` once per poll, which is what makes the change safe:
 
@@ -116,7 +116,7 @@ constructors that resolve against `HttpClient.BaseAddress`) cannot be rebound an
 
 ### Starting unbound
 
-`WatchDestination.Unbound(domain?)` names no server at all — for a host whose destination arrives after
+`WatchDestination.Unbound()` names no server at all — for a host whose destination arrives after
 startup, where a placeholder URL would make an open circuit breaker and a climbing `DroppedEventCount` the
 normal state of a healthy process. While unbound:
 
@@ -163,22 +163,22 @@ using Pondhawk.Logging.Watch;
 
 // Recommended — Watch Server controls log levels via switches.
 builder.Logging.ClearProviders();
-builder.Logging.AddWatch("http://localhost:11000", "MyApp");
+builder.Logging.AddWatch("http://localhost:11000/MyApp");
 
 // With options
-builder.Logging.AddWatch("http://localhost:11000", "MyApp", opts =>
+builder.Logging.AddWatch("http://localhost:11000/MyApp", opts =>
 {
     opts.BatchSize = 50;
     opts.PollInterval = TimeSpan.FromSeconds(15);
 });
 
 // Rebindable — for a destination that is not known until configuration arrives
-var destination = new WatchDestination("http://localhost:11000", "MyApp");
+var destination = new WatchDestination("http://localhost:11000/MyApp");
 builder.Logging.AddWatch(destination);
-destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
+destination.Rebind("http://watch.prod.internal:11000/MyApp.Fleet");
 
 // Standalone factory
-using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000", "MyApp"));
+using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000/MyApp"));
 ```
 
 ## Architecture Notes

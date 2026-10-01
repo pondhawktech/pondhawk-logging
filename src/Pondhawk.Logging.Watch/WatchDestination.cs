@@ -6,7 +6,8 @@ using CommunityToolkit.Diagnostics;
 namespace Pondhawk.Logging.Watch;
 
 /// <summary>
-/// The Watch server and domain the provider currently delivers to, rebindable while the process runs.
+/// The Watch URL the provider currently delivers to — server, domain, and optional API key — rebindable
+/// while the process runs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,6 +15,11 @@ namespace Pondhawk.Logging.Watch;
 /// changes — for an agent told where to log by configuration that only arrives after startup, this is the
 /// supported way to follow it. It is also registered as a singleton by <c>AddWatch</c>, so it can be
 /// resolved from DI rather than captured.
+/// </para>
+/// <para>
+/// The Watch URL (<c>scheme://[key@]host[:port][/base-path]/&lt;domain&gt;</c>) is the provider's only
+/// destination setting: the last path segment is the domain, and the optional user-info is a Watch API key,
+/// sent as an <c>Authorization: Bearer</c> header and never in a request URI or in <see cref="Url"/>.
 /// </para>
 /// <para>
 /// A rebind tears nothing down: the delivery channel, the critical-event buffer, and the HTTP client all
@@ -36,48 +42,50 @@ public sealed class WatchDestination
     private readonly object _rebindLock = new();
     private Binding _current;
 
-    /// <summary>Creates a destination bound to a Watch server URL and domain.</summary>
-    /// <param name="serverUrl">The Watch server URL, e.g. <c>http://localhost:11000</c>.</param>
-    /// <param name="domain">The domain name for log-event batches (typically the application's name).</param>
-    public WatchDestination(string serverUrl, string domain)
+    /// <summary>Creates a destination bound to a Watch URL.</summary>
+    /// <param name="watchUrl">
+    /// The Watch URL, e.g. <c>http://localhost:11000/my-domain</c> or
+    /// <c>https://pwk_id_secret@watch.example.com/my-domain</c>.
+    /// </param>
+    /// <exception cref="ArgumentException"><paramref name="watchUrl"/> is not a valid Watch URL.</exception>
+    public WatchDestination(string watchUrl)
     {
-        Guard.IsNotNullOrWhiteSpace(serverUrl);
-        Guard.IsNotNullOrWhiteSpace(domain);
-
-        _current = Binding.Absolute(1, serverUrl, domain);
+        _current = Binding.Absolute(1, WatchUrl.Parse(watchUrl));
     }
 
     /// <summary>
     /// Creates a domain-only destination whose request URIs stay relative, resolved against the
     /// <see cref="HttpClient.BaseAddress"/> of whatever client is used. This is the shape behind the
-    /// server-url-less constructors kept for compatibility; it cannot be rebound to another server.
+    /// domain-only processor and switch-source constructors; it carries no API key and cannot be rebound
+    /// to another server.
     /// </summary>
     /// <param name="domain">The domain name for log-event batches.</param>
-    internal WatchDestination(string domain)
+    /// <returns>A relative destination.</returns>
+    internal static WatchDestination Relative(string domain)
     {
         Guard.IsNotNull(domain);
 
-        _current = Binding.Relative(1, domain);
+        return new WatchDestination(Binding.Relative(1, domain));
     }
 
     /// <summary>
     /// Creates a destination that names no server yet. Nothing is posted until <see cref="Rebind"/> names
-    /// one; events at Warning and above are held until then, and lower levels are discarded.
+    /// one; events at Warning and above are held until then, and lower levels are discarded. Held events
+    /// are delivered under the domain of the Watch URL that releases them.
     /// </summary>
-    /// <param name="domain">
-    /// An optional label for the unbound state. It never reaches the wire — the domain a held event is
-    /// delivered under is the one supplied by the <see cref="Rebind"/> that releases it.
-    /// </param>
     /// <returns>An unbound destination, ready to be passed to <c>AddWatch</c> and rebound later.</returns>
-    public static WatchDestination Unbound(string domain = "")
-        => new(Binding.Unbound(1, domain ?? string.Empty));
+    public static WatchDestination Unbound()
+        => new(Binding.Unbound(1));
 
     private WatchDestination(Binding binding) => _current = binding;
 
-    /// <summary>Gets the current Watch server URL, or an empty string when relative or unbound.</summary>
-    public string ServerUrl => Current.ServerUrl;
+    /// <summary>
+    /// Gets the current Watch URL with any API key masked (<c>***</c>) — safe to log or display — or an
+    /// empty string when relative or unbound.
+    /// </summary>
+    public string Url => Current.Url;
 
-    /// <summary>Gets the current domain name.</summary>
+    /// <summary>Gets the current domain name, or an empty string when unbound.</summary>
     public string Domain => Current.Domain;
 
     /// <summary>
@@ -93,21 +101,20 @@ public sealed class WatchDestination
     public bool IsBound => !Current.IsUnbound;
 
     /// <summary>
-    /// Points the provider at a different Watch server and domain, effective from the next batch posted
-    /// and the next switch poll.
+    /// Points the provider at a different Watch URL — server, domain, or API key — effective from the next
+    /// batch posted and the next switch poll. Rotating a key is a rebind to the same URL with the new key.
     /// </summary>
-    /// <param name="serverUrl">The Watch server URL to deliver to.</param>
-    /// <param name="domain">The domain name for log-event batches.</param>
+    /// <param name="watchUrl">The Watch URL to deliver to.</param>
     /// <returns>
     /// <see langword="true"/> when the destination changed; <see langword="false"/> when it already named
-    /// this server and domain, in which case nothing is disturbed. Callers handed a configuration that
+    /// this server, domain and key, in which case nothing is disturbed. Callers handed a configuration that
     /// repeats the same destination can therefore call this unconditionally.
     /// </returns>
+    /// <exception cref="ArgumentException"><paramref name="watchUrl"/> is not a valid Watch URL.</exception>
     /// <exception cref="InvalidOperationException">The destination is relative and has no server URL to replace.</exception>
-    public bool Rebind(string serverUrl, string domain)
+    public bool Rebind(string watchUrl)
     {
-        Guard.IsNotNullOrWhiteSpace(serverUrl);
-        Guard.IsNotNullOrWhiteSpace(domain);
+        var parsed = WatchUrl.Parse(watchUrl);
 
         lock (_rebindLock)
         {
@@ -119,13 +126,10 @@ public sealed class WatchDestination
                     "This WatchDestination has no server URL of its own — its requests resolve against the HttpClient's BaseAddress — so it cannot be rebound. Construct it with a server URL, or use WatchDestination.Unbound, to make the destination rebindable.");
             }
 
-            if (string.Equals(current.ServerUrl, serverUrl, StringComparison.Ordinal) &&
-                string.Equals(current.Domain, domain, StringComparison.Ordinal))
-            {
+            if (parsed.Equals(current.Source))
                 return false;
-            }
 
-            Volatile.Write(ref _current, Binding.Absolute(current.Version + 1, serverUrl, domain));
+            Volatile.Write(ref _current, Binding.Absolute(current.Version + 1, parsed));
             return true;
         }
     }
@@ -139,10 +143,10 @@ public sealed class WatchDestination
     /// </summary>
     internal sealed class Binding
     {
-        private Binding(long version, string serverUrl, string domain, Uri? sinkUri, Uri? switchesUri, bool isRelative, bool isUnbound)
+        private Binding(long version, WatchUrl? source, string domain, Uri? sinkUri, Uri? switchesUri, bool isRelative, bool isUnbound)
         {
             Version = version;
-            ServerUrl = serverUrl;
+            Source = source;
             Domain = domain;
             SinkUri = sinkUri;
             SwitchesUri = switchesUri;
@@ -152,7 +156,14 @@ public sealed class WatchDestination
 
         public long Version { get; }
 
-        public string ServerUrl { get; }
+        /// <summary>The Watch URL this binding was made from; <see langword="null"/> when relative or unbound.</summary>
+        public WatchUrl? Source { get; }
+
+        /// <summary>The redacted Watch URL, or an empty string when relative or unbound.</summary>
+        public string Url => Source?.Redacted ?? string.Empty;
+
+        /// <summary>The API key to send as <c>Authorization: Bearer</c>; <see langword="null"/> for none.</summary>
+        public string? ApiKey => Source?.ApiKey;
 
         public string Domain { get; }
 
@@ -168,27 +179,23 @@ public sealed class WatchDestination
         /// <summary>True when no server has been named yet, so there is nowhere to post or poll.</summary>
         public bool IsUnbound { get; }
 
-        public static Binding Absolute(long version, string serverUrl, string domain)
-        {
-            var root = new Uri(serverUrl.TrimEnd('/') + "/", UriKind.Absolute);
-
-            return new Binding(
+        public static Binding Absolute(long version, WatchUrl url)
+            => new(
                 version,
-                serverUrl,
-                domain,
-                new Uri(root, SinkPath),
-                new Uri(root, SwitchesPath(domain)),
+                url,
+                url.Domain,
+                new Uri(url.BaseUri, SinkPath),
+                new Uri(url.BaseUri, SwitchesPath(url.Domain)),
                 isRelative: false,
                 isUnbound: false);
-        }
 
-        public static Binding Unbound(long version, string domain)
-            => new(version, string.Empty, domain, null, null, isRelative: false, isUnbound: true);
+        public static Binding Unbound(long version)
+            => new(version, source: null, string.Empty, null, null, isRelative: false, isUnbound: true);
 
         public static Binding Relative(long version, string domain)
             => new(
                 version,
-                string.Empty,
+                source: null,
                 domain,
                 new Uri(SinkPath, UriKind.Relative),
                 new Uri(SwitchesPath(domain), UriKind.Relative),

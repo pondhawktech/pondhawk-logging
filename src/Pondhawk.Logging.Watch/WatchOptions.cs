@@ -12,14 +12,10 @@ namespace Pondhawk.Logging.Watch;
 public class WatchOptions
 {
     /// <summary>
-    /// Gets or sets the Watch Server URL. Default is "http://localhost:11000".
+    /// Gets or sets the Watch URL — <c>scheme://[key@]host[:port][/base-path]/&lt;domain&gt;</c> — the
+    /// provider delivers to. The last path segment is the domain; the optional user-info is a Watch API key.
     /// </summary>
-    public string ServerUrl { get; set; } = "http://localhost:11000";
-
-    /// <summary>
-    /// Gets or sets the domain name for log event batches. Default is "Default".
-    /// </summary>
-    public string Domain { get; set; } = "Default";
+    public string Url { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the default log level when no switch pattern matches. Default is Warning.
