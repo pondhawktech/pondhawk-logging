@@ -19,18 +19,39 @@ using Pondhawk.Logging.Watch;
 
 // In a Host / WebApplication builder — the Watch Server controls log levels via switches.
 builder.Logging.ClearProviders();
-builder.Logging.AddWatch("http://localhost:11000", "MyApp");
+builder.Logging.AddWatch("http://localhost:11000/MyApp");
 
 // Or standalone:
-using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000", "MyApp"));
+using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000/MyApp"));
 
 // Options (batch size, flush/poll intervals, default level/color when no switch matches):
-builder.Logging.AddWatch("http://localhost:11000", "MyApp", o =>
+builder.Logging.AddWatch("http://localhost:11000/MyApp", o =>
 {
     o.BatchSize = 200;
     o.PollInterval = TimeSpan.FromSeconds(15);
 });
 ```
+
+### The Watch URL
+
+The Watch URL is the provider's only destination setting — where to send, which domain, and the
+credential, in one string:
+
+```
+scheme://[key@]host[:port][/base-path]/<domain>
+
+http://localhost:11000/MyApp                          # local, no key
+https://pwk_7f3kq2_Zx8vR1mQ…@watch.example.com/MyApp   # with a Watch API key
+https://pwk_…@ingest.example.com/watch/MyApp           # Watch served under /watch
+```
+
+- The **last path segment is the domain** (percent-encode spaces and slashes).
+- The optional **user-info is a Watch API key**, issued from the domain's Connection section in the Watch
+  UI. It is sent as `Authorization: Bearer <key>` and never appears in a request URI;
+  `WatchDestination.Url` and error messages show it as `***`.
+- A key is refused over plain `http` except to a loopback host, and an invalid URL throws
+  `ArgumentException` from `AddWatch` / `WatchDestination` / `Rebind` — so a bad setting fails at startup.
+- Treat a URL that carries a key as a secret, like a connection string.
 
 Switch-awareness is automatic: `AddWatch` opens the level floor and registers a filter that consults the
 live switch table, so the logging API — which gates on `ILogger.IsEnabled` — skips serialization for
@@ -111,29 +132,29 @@ public class Credentials
 
 ### Changing the destination while running
 
-`AddWatch(serverUrl, domain)` fixes the destination for the life of the process. When the destination
+`AddWatch(watchUrl)` fixes the destination for the life of the process. When the destination
 is not known at startup — an agent told where to log by configuration that arrives later — hold a
 `WatchDestination` and rebind it:
 
 ```csharp
-var destination = new WatchDestination("http://localhost:11000", "MyApp");
+var destination = new WatchDestination("http://localhost:11000/MyApp");
 
 builder.Logging.AddWatch(destination);
 
 // later, when configuration names somewhere else
-destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
+destination.Rebind("http://watch.prod.internal:11000/MyApp.Fleet");
 ```
 
 A host that has no destination at startup — one told where to log by configuration that arrives later —
 starts unbound instead, so it never has to point at a placeholder server:
 
 ```csharp
-var destination = WatchDestination.Unbound("agent");
+var destination = WatchDestination.Unbound();
 
 builder.Logging.AddWatch(destination);
 
 // ... when the configuration finally names one
-destination.Rebind(plan.WatchEventStoreUri, plan.WatchDomainName);
+destination.Rebind(plan.WatchUrl);
 ```
 
 While unbound the provider posts nothing, polls no switches, counts no failures and leaves the circuit

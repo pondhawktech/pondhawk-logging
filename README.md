@@ -56,15 +56,15 @@ logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 
 ### Changing the Watch destination while running
 
-`AddWatch(serverUrl, domain)` fixes the destination for the life of the process. For an application told
+`AddWatch(watchUrl)` fixes the destination for the life of the process. For an application told
 where to log after it has started, hold a `WatchDestination` instead and rebind it — nothing is torn
 down, so events already queued are delivered rather than dropped:
 
 ```csharp
-var destination = new WatchDestination("http://localhost:11000", "MyApp");
+var destination = new WatchDestination("http://localhost:11000/MyApp");
 builder.Logging.AddWatch(destination);
 
-destination.Rebind("http://watch.prod.internal:11000", "MyApp.Fleet");
+destination.Rebind("http://watch.prod.internal:11000/MyApp.Fleet");
 ```
 
 A host with no destination at startup starts `WatchDestination.Unbound()` instead of pointing at a
@@ -91,7 +91,7 @@ using Pondhawk.Logging.Watch;
 
 // Recommended — the Watch Server controls levels via switches
 builder.Logging.ClearProviders();
-builder.Logging.AddWatch("http://localhost:11000", "MyApp");
+builder.Logging.AddWatch("http://localhost:11000/MyApp");
 ```
 
 `AddWatch` registers a ZLogger delivery processor and a level filter driven by the Watch server's switch table, so payloads for switch-dropped categories are never serialized. Events are batched over an unbounded Channel and sent as MemoryPack, with a circuit breaker for HTTP resilience. See the [package README](src/Pondhawk.Logging.Watch/README.md) for switching and the event model.

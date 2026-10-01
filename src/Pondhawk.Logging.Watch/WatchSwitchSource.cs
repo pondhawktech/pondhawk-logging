@@ -3,6 +3,7 @@
 
 using System.Drawing;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading;
 using CommunityToolkit.Diagnostics;
@@ -79,7 +80,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     private static WatchDestination NewRelativeDestination(string domain)
     {
         Guard.IsNotNull(domain);
-        return new WatchDestination(domain);
+        return WatchDestination.Relative(domain);
     }
 
     /// <summary>
@@ -140,6 +141,8 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
             using var request = new HttpRequestMessage(HttpMethod.Get, binding.SwitchesUri);
             if (_lastETag is not null)
                 request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);
+            if (binding.ApiKey is not null)
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", binding.ApiKey);
 
             using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
 

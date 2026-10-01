@@ -30,38 +30,38 @@ public static class WatchLoggingBuilderExtensions
     /// <see cref="AddWatch(ILoggingBuilder, WatchDestination, Action{WatchOptions})"/> instead.
     /// </remarks>
     /// <param name="builder">The logging builder.</param>
-    /// <param name="serverUrl">The Watch server URL.</param>
-    /// <param name="domain">The domain name for log-event batches (typically the application's name).</param>
+    /// <param name="watchUrl">
+    /// The Watch URL — <c>scheme://[key@]host[:port][/base-path]/&lt;domain&gt;</c>, e.g.
+    /// <c>http://localhost:11000/my-app</c> or <c>https://pwk_id_secret@watch.example.com/my-app</c>. The last
+    /// path segment is the domain; the optional user-info is a Watch API key.
+    /// </param>
     /// <param name="configure">An optional action to customize the Watch options.</param>
     /// <returns>The logging builder for chaining.</returns>
+    /// <exception cref="ArgumentException"><paramref name="watchUrl"/> is not a valid Watch URL.</exception>
     public static ILoggingBuilder AddWatch(
         this ILoggingBuilder builder,
-        string serverUrl,
-        string domain,
+        string watchUrl,
         Action<WatchOptions>? configure = null)
     {
         Guard.IsNotNull(builder);
-        Guard.IsNotNullOrWhiteSpace(serverUrl);
-        Guard.IsNotNullOrWhiteSpace(domain);
 
-        var options = new WatchOptions { ServerUrl = serverUrl, Domain = domain };
+        var options = new WatchOptions { Url = watchUrl };
         configure?.Invoke(options);
 
-        return AddWatchCore(builder, new WatchDestination(options.ServerUrl, options.Domain), options);
+        return AddWatchCore(builder, new WatchDestination(options.Url), options);
     }
 
     /// <summary>
     /// Adds Watch to the logging builder, delivering to a caller-owned <see cref="WatchDestination"/>. Hold
     /// that destination and call <see cref="WatchDestination.Rebind"/> to move the process's log events to
-    /// a different Watch server or domain while it runs, without rebuilding the logging factory and without
+    /// a different Watch URL while it runs, without rebuilding the logging factory and without
     /// dropping events already buffered.
     /// </summary>
     /// <param name="builder">The logging builder.</param>
-    /// <param name="destination">The server and domain to deliver to.</param>
+    /// <param name="destination">The Watch URL to deliver to.</param>
     /// <param name="configure">
-    /// An optional action to customize the Watch options. <see cref="WatchOptions.ServerUrl"/> and
-    /// <see cref="WatchOptions.Domain"/> are ignored here — <paramref name="destination"/> supplies both,
-    /// and it stays the authority for them after a rebind.
+    /// An optional action to customize the Watch options. <see cref="WatchOptions.Url"/> is ignored here —
+    /// <paramref name="destination"/> supplies it, and stays the authority for it after a rebind.
     /// </param>
     /// <returns>The logging builder for chaining.</returns>
     public static ILoggingBuilder AddWatch(
@@ -72,7 +72,7 @@ public static class WatchLoggingBuilderExtensions
         Guard.IsNotNull(builder);
         Guard.IsNotNull(destination);
 
-        var options = new WatchOptions { ServerUrl = destination.ServerUrl, Domain = destination.Domain };
+        var options = new WatchOptions { Url = destination.Url };
         configure?.Invoke(options);
 
         return AddWatchCore(builder, destination, options);
