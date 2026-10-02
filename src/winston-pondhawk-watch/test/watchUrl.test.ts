@@ -26,6 +26,11 @@ describe('parseWatchUrl', () => {
     (url) => expect(parseWatchUrl(url).apiKey).toBe('pwk_a_s'),
   );
 
+  it.each(['http://pwk_a_s@127.evil.example/orders', 'http://pwk_a_s@127.0.0.1.evil.example/orders', 'http://pwk_a_s@localhost.evil.example/orders'])(
+    'does not mistake a look-alike host for loopback: %s',
+    (url) => expect(() => parseWatchUrl(url)).toThrow(/https/),
+  );
+
   it('refuses a key over http elsewhere, without echoing it', () => {
     expect(() => parseWatchUrl('http://pwk_a_secret@watch.example.com/orders')).toThrow(/https/);
     expect(() => parseWatchUrl('http://pwk_a_secret@watch.example.com/orders')).not.toThrow(/secret/);

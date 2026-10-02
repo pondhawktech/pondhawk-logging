@@ -38,6 +38,9 @@ export function parseWatchUrl(url) {
     const baseUrl = `${parsed.protocol}//${parsed.host}${path.slice(0, lastSlash + 1)}`;
     return { baseUrl, domain, apiKey, redacted };
 }
+// A real loopback address: localhost, [::1], or an IPv4 address in 127.0.0.0/8 — not merely a name that
+// starts with "127." (e.g. 127.evil.example), which would let a key go out over plain http.
+const IPV4_LOOPBACK = /^127\.(25[0-5]|2[0-4]\d|1?\d?\d)\.(25[0-5]|2[0-4]\d|1?\d?\d)\.(25[0-5]|2[0-4]\d|1?\d?\d)$/;
 function isLoopback(hostname) {
-    return LOOPBACK_HOSTS.has(hostname) || hostname.startsWith('127.');
+    return LOOPBACK_HOSTS.has(hostname) || IPV4_LOOPBACK.test(hostname);
 }
