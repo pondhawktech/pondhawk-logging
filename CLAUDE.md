@@ -70,7 +70,7 @@ A ZLogger-based console for Linux production services. `AddJournaldConsole(this 
 
 ### Pondhawk.Logging.CloudWatch — CloudWatch Logs provider (references Pondhawk.Logging)
 
-A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one Pascal-case JSON object. Ported from fabrica-one's `Fabrica.Watch.CloudWatch` sink, which remains the reference for its behavior.
+A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one Pascal-case JSON object.
 
 - **CloudWatchLoggingBuilderExtensions**: **`AddCloudWatch(this ILoggingBuilder, logGroup, service, configure?)`** is the entry point (an overload takes a `CloudWatchDestination`). It registers `CloudWatchLoggerProvider` and a filter scoped to it, fixed at Information: Information, Warning, Error and Critical always go, Debug and Trace never do, with no setting and no switch. Nothing here touches the network.
 - **CloudWatchLoggerProvider**: a subclass of ZLogger's `ZLoggerLogProcessorLoggerProvider` that exists only so the level floor has its own provider type — every ZLogger processor otherwise shares one, and a floor scoped to that would clamp Watch too. A provider-scoped rule also outranks Watch's global switch filter, so the switch table does not gate CloudWatch.
