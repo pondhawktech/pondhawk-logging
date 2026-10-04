@@ -1,6 +1,6 @@
 # Pondhawk.Logging
 
-> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) and a journald-optimized console. Three packages, all target net8.0, no dependency on other Pondhawk packages.
+> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) a journald-optimized console, and an Amazon CloudWatch Logs provider. Four packages, all target net8.0, no dependency on other Pondhawk packages.
 
 ## Packages
 
@@ -57,13 +57,28 @@ builder.Logging.AddJournaldConsole();   // fixed at Warning; for Linux productio
 **Key types (`Pondhawk.Logging.Console` namespace):**
 - `JournaldConsoleLoggingBuilderExtensions` — `AddJournaldConsole(this ILoggingBuilder)`: a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>` mapped from `LogLevel`) and category, with no timestamp and no ANSI color; exceptions render inline (single journald entry). Fixed at Warning.
 
+### Pondhawk.Logging.CloudWatch — Amazon CloudWatch Logs provider
+
+Install: `dotnet add package Pondhawk.Logging.CloudWatch`
+```csharp
+using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.CloudWatch;
+
+builder.Logging.AddCloudWatch("/my-app/Production", "orders");   // Information and above; stream <instance-id>/orders
+```
+**Key types (`Pondhawk.Logging.CloudWatch` namespace):**
+- `CloudWatchLoggingBuilderExtensions` — `AddCloudWatch(this ILoggingBuilder, logGroup, service, configure?)` and an overload taking a `CloudWatchDestination`. Level is fixed: Information and above always, Debug and Trace never, not gated by Watch switches. Touches no network; cannot stop the host starting.
+- `CloudWatchOptions` — `StreamName` (null = `<instance-id>/<service>` from EC2 metadata), `Credentials`, `Region`, `RetentionDays` (30), `BatchSize`, `FlushInterval`, `MaxHeldEvents` (100)
+- `CloudWatchDestination` — the log group; `Rebind(logGroup)` at runtime, `Unbound()` when the group arrives later (Warning and above held until then), `Sanitize(text)`
+- `CloudWatchLoggerProcessor` — a ZLogger `IAsyncLogProcessor`: one Pascal-case JSON object per event (`Level`, `Category`, `CorrelationId`, `Title`, `Context`, `Exceptions`, `Payload`); creates its stream and a missing group on the first batch; access denied turns it off, any other failure pauses it for a minute while Warning and above is held
+
 ## Docs
 - [README.md](README.md) — overview and examples
-- [src/Pondhawk.Logging/README.md](src/Pondhawk.Logging/README.md), [src/Pondhawk.Logging.Watch/README.md](src/Pondhawk.Logging.Watch/README.md) — NuGet package readmes
+- [src/Pondhawk.Logging/README.md](src/Pondhawk.Logging/README.md), [src/Pondhawk.Logging.Watch/README.md](src/Pondhawk.Logging.Watch/README.md), [src/Pondhawk.Logging.Console/README.md](src/Pondhawk.Logging.Console/README.md), [src/Pondhawk.Logging.CloudWatch/README.md](src/Pondhawk.Logging.CloudWatch/README.md) — NuGet package readmes
 - [CLAUDE.md](CLAUDE.md) plus per-project `src/*/CLAUDE.md` — repository/build guidance
 
 ## Technical details
-- All three packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch and Console providers use ZLogger)
+- All four packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch, Console and CloudWatch providers use ZLogger)
 - XML documentation ships inside the NuGet packages (100% public-API coverage; consumers get IntelliSense)
 - `Pondhawk.Logging.Watch` is consumed by the pondhawk/watch-server client
 - MIT licensed; extracted from the pondhawktech/tools monorepo

@@ -16,13 +16,14 @@
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.Watch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.Watch?label=Logging.Watch" alt="Pondhawk.Logging.Watch on NuGet" /></a>
 </p>
 
-Three packages, all `net8.0` and fully standalone (no dependency on other Pondhawk packages):
+Four packages, all `net8.0` and fully standalone (no dependency on other Pondhawk packages):
 
 | Package | Description |
 |---------|-------------|
 | [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport** — providers build on it. |
 | [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
 | [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), fixed at Warning for Linux production services. |
+| [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
 
 ## Installation
 
@@ -30,6 +31,7 @@ Three packages, all `net8.0` and fully standalone (no dependency on other Pondha
 dotnet add package Pondhawk.Logging
 dotnet add package Pondhawk.Logging.Watch     # deliver events to a Watch Server
 dotnet add package Pondhawk.Logging.Console   # journald-optimized console for Linux production
+dotnet add package Pondhawk.Logging.CloudWatch # deliver events to Amazon CloudWatch Logs
 ```
 
 ## Pondhawk.Logging
@@ -110,15 +112,30 @@ builder.Logging.AddJournaldConsole();
 
 Each line carries an sd-daemon priority prefix (`<3>` err, `<4>` warning, …) so `journalctl -p` filtering and level coloring work, with no timestamp or ANSI color (journald adds the time and stores raw text) and exceptions rendered inline as a single entry. See the [package README](src/Pondhawk.Logging.Console/README.md).
 
+## Pondhawk.Logging.CloudWatch
+
+Information and above to **Amazon CloudWatch Logs**, one JSON object per event:
+
+```csharp
+using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.CloudWatch;
+
+builder.Logging.AddCloudWatch("/my-app/Production", "orders");   // stream: <instance-id>/orders
+```
+
+Each event carries `Level`, `Category`, `CorrelationId` and `Title`, with an exception written as a structured `Exceptions` chain, an `ErrorWithContext` context as a nested `Context` object, and a JSON payload as nested JSON — so Logs Insights filters on fields (`filter Context.OrderId = 42`). The provider creates its stream, and a missing group with 30 days' retention, on its first batch; adding it touches no network, and a CloudWatch that is unreachable, denied or unconfigured never throws into or delays the host. A `CloudWatchDestination` can start unbound and be rebound when the group is learned later. See the [package README](src/Pondhawk.Logging.CloudWatch/README.md).
+
 ## Repository Layout
 
 ```
 src/Pondhawk.Logging/          The logging API on Microsoft.Extensions.Logging (net8.0)
 src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + switching (net8.0)
 src/Pondhawk.Logging.Console/  journald-optimized ZLogger console (net8.0)
+src/Pondhawk.Logging.CloudWatch/  CloudWatch Logs provider — ZLogger processor (net8.0)
 test/Pondhawk.Logging.Tests/
 test/Pondhawk.Logging.Watch.Tests/
 test/Pondhawk.Logging.Console.Tests/
+test/Pondhawk.Logging.CloudWatch.Tests/
 build/                         Cake (Frosting) build script
 .github/workflows/             build.yml (build/test/pack → GitHub Packages) + publish.yml (→ NuGet.org)
 ```
@@ -144,7 +161,7 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>   # 
 
 ## CI/CD
 
-- **`build.yml`** — on push/PR to `main`: build + test; on `main` it also packs and pushes both packages to the `pondhawktech` GitHub Packages feed and uploads the `.nupkg`s as an artifact.
+- **`build.yml`** — on push/PR to `main`: build + test; on `main` it also packs and pushes the packages to the `pondhawktech` GitHub Packages feed and uploads the `.nupkg`s as an artifact.
 - **`publish.yml`** — manual `workflow_dispatch` that promotes a build's artifacts to **NuGet.org** (uses the org-level `NUGET_ORG_API_KEY`).
 
 ## History

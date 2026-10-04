@@ -14,9 +14,14 @@ dotnet build pondhawk-logging.slnx
 # Build a single project
 dotnet build src/Pondhawk.Logging/Pondhawk.Logging.csproj
 dotnet build src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj
+dotnet build src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj
 
 # Run tests directly
 dotnet test pondhawk-logging.slnx
+
+# Run the CloudWatch provider against the real service (skipped unless a local AWS profile is named;
+# creates and deletes throwaway log groups under /pondhawk-logging/test-*)
+CLOUDWATCH_LIVE_PROFILE=<profile> dotnet test test/Pondhawk.Logging.CloudWatch.Tests --filter Category=Aws
 
 # Pack NuGet packages (writes to ./artifacts)
 dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
@@ -24,14 +29,14 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
 
 ## Project Setup
 
-- **.NET 8** — both projects target `net8.0` (`LangVersion=latest`, `Nullable=enable`).
+- **.NET 8** — every project targets `net8.0` (`LangVersion=latest`, `Nullable=enable`).
 - **Central package management** via `Directory.Packages.props`.
 - `TreatWarningsAsErrors` on; Meziantou analyzer enforced (`src/Directory.Build.props`).
 - Versioning: each project's `version.json` holds `major.minor`; the Cake `Pack` target appends the build number (and a `-local`/`-<suffix>` prerelease tag off CI).
 
 ## Architecture
 
-Three packages: the logging API, a Watch Server provider, and a journald-optimized console — the providers build on the API. All are fully standalone — no dependency on other Pondhawk packages.
+Four packages: the logging API, a Watch Server provider, a journald-optimized console, and a CloudWatch Logs provider — the Watch and CloudWatch providers build on the API. All are fully standalone — no dependency on other Pondhawk packages.
 
 ### Pondhawk.Logging — Structured Logging API
 
@@ -63,11 +68,21 @@ A ZLogger-based `Microsoft.Extensions.Logging` provider with Channel-based batch
 
 A ZLogger-based console for Linux production services. `AddJournaldConsole(this ILoggingBuilder)` wires a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>`, mapped from `LogLevel`) and the category, with no timestamp and no ANSI color — so journald parses the priority and stamps the time itself. Exceptions render inline (a single journald entry). Fixed at Warning via a provider-scoped filter. Depends only on ZLogger; does not reference `Pondhawk.Logging`.
 
+### Pondhawk.Logging.CloudWatch — CloudWatch Logs provider (references Pondhawk.Logging)
+
+A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one Pascal-case JSON object. Ported from fabrica-one's `Fabrica.Watch.CloudWatch` sink, which remains the reference for its behavior.
+
+- **CloudWatchLoggingBuilderExtensions**: **`AddCloudWatch(this ILoggingBuilder, logGroup, service, configure?)`** is the entry point (an overload takes a `CloudWatchDestination`). It registers `CloudWatchLoggerProvider` and a filter scoped to it, fixed at Information: Information, Warning, Error and Critical always go, Debug and Trace never do, with no setting and no switch. Nothing here touches the network.
+- **CloudWatchLoggerProvider**: a subclass of ZLogger's `ZLoggerLogProcessorLoggerProvider` that exists only so the level floor has its own provider type — every ZLogger processor otherwise shares one, and a floor scoped to that would clamp Watch too. A provider-scoped rule also outranks Watch's global switch filter, so the switch table does not gate CloudWatch.
+- **CloudWatchLoggerProcessor**: a ZLogger `IAsyncLogProcessor` with unbounded Channel batching. `Post()` copies the pooled entry out on the calling thread (correlation from `CorrelationManager.Current`); formatting and sending happen on the flush thread. On the first batch it builds the AWS client, resolves the stream (`CloudWatchOptions.StreamName`, else `<instance-id>/<service>` from EC2 metadata) and creates the stream — and a missing group, with retention only if it created it. A verdict on the configuration turns it off, noted once on stdout: for the process (no client, no stream name) or for the group until a rebind (access denied). Anything else pauses it for `PauseAfterFailure` (one minute; one 5-second attempt per call, no SDK retries). While paused or unbound the most recent `MaxHeldEvents` Warning-and-above events are held for the next batch that can be sent. Batches are sorted by time and split at PutLogEvents' limits (1,048,576 bytes counting 26 per event; 10,000 events; a 24-hour span).
+- **CloudWatchEventFormatter**: the event's JSON, shaped by what the event carries, never by guessing at text — an exception gives `Exceptions` (the whole chain, one frame per array entry) plus `Context` from `Pondhawk.ErrorContext`; a Json payload is nested JSON under `Payload`; anything else is text or an array of lines. `Context` is always an object (`{ "Value": … }` otherwise). An event over 256 KB loses context, then payload lines, then stack frames.
+- **CloudWatchDestination**: the log group, as one immutable snapshot re-read per batch. **`Rebind(logGroup)`** moves the process to another group without tearing anything down; **`Unbound()`** starts with no group named. `Sanitize` makes a valid group name from arbitrary text.
+
 Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhawk.Logging.Watch/CLAUDE.md`.
 
 ## Conventions
 
-- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`.
+- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`, `Pondhawk.Logging.Console`, `Pondhawk.Logging.CloudWatch`.
 
 ## History
 
@@ -75,5 +90,5 @@ Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/tools) m
 
 ## CI/CD
 
-- `.github/workflows/build.yml` — builds, tests, packs, and pushes both packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts.
+- `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts.
 - `.github/workflows/publish.yml` — `workflow_dispatch` that promotes a build's artifacts to **NuGet.org** (requires the `NUGET_ORG_API_KEY` secret; org-level).
