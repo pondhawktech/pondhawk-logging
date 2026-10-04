@@ -197,6 +197,138 @@ public class CloudWatchEventFormatterTests
         document.RootElement.GetProperty("Payload").GetString().ShouldEndWith("...[truncated]");
     }
 
+    [Theory]
+    [InlineData(300_000, 'x')]   // one long line, then another
+    [InlineData(45_000, '<')]    // far shorter, but every character is escaped to six bytes
+    [InlineData(45_000, '\u4e2d')]
+    public async Task ALongFirstLine_FollowedByAnother_IsCut_AndFormattingReturns(int length, char character)
+    {
+        var logEvent = Event(e =>
+        {
+            e.PayloadType = PayloadType.Text;
+            e.Payload = new string(character, length) + "\nsecond line\nthird line";
+        }, level: LogLevel.Warning);
+
+        // This once never returned. Bounded here so that a regression fails rather than hangs the run.
+        var message = await Task.Run(() => CloudWatchEventFormatter.Format(logEvent)).WaitAsync(TimeSpan.FromSeconds(20));
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
+        using var document = JsonDocument.Parse(message);
+        document.RootElement.GetProperty("Payload").GetString().ShouldEndWith("...[truncated]");
+    }
+
+    [Fact]
+    public void AHugeTitle_IsCut()
+    {
+        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent { Level = LogLevel.Error, Category = "My.Category", Title = new string('t', 2_000_000) });
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
+        using var document = JsonDocument.Parse(message);
+        var title = document.RootElement.GetProperty("Title").GetString();
+        title.ShouldEndWith("...[truncated]");
+        title.Length.ShouldBeLessThan(CloudWatchEventFormatter.MaxTitleChars + 32);
+    }
+
+    [Fact]
+    public void AHugeCategoryAndCorrelationId_AreCut()
+    {
+        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent
+        {
+            Level = LogLevel.Warning,
+            Category = new string('c', 1_000_000),
+            CorrelationId = new string('i', 1_000_000),
+            Title = "t",
+        });
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThan(8_192);
+    }
+
+    private sealed class HugeMessageException(Exception inner = null) : Exception("ignored", inner)
+    {
+        public override string Message => new string('m', 2_000_000);
+    }
+
+    private sealed class ThrowingException : Exception
+    {
+        public override string Message => throw new NotSupportedException("message");
+
+        public override string StackTrace => throw new NotSupportedException("stack");
+    }
+
+    [Fact]
+    public void AHugeExceptionMessage_IsCut_AndTheExceptionStillReported()
+    {
+        var message = CloudWatchEventFormatter.Format(Event(exception: new HugeMessageException()));
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
+        using var document = JsonDocument.Parse(message);
+        var exception = document.RootElement.GetProperty("Exceptions")[0];
+        exception.GetProperty("Type").GetString().ShouldEndWith("HugeMessageException");
+        exception.GetProperty("Message").GetString().ShouldEndWith("...[truncated]");
+    }
+
+    [Fact]
+    public void AChainLongerThanAnythingReal_IsCut()
+    {
+        Exception chain = new InvalidOperationException("leaf");
+        for (var i = 0; i < 20_000; i++)
+            chain = new InvalidOperationException("level " + i, chain);
+
+        var message = CloudWatchEventFormatter.Format(Event(exception: chain));
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
+        using var document = JsonDocument.Parse(message);
+        var exceptions = document.RootElement.GetProperty("Exceptions");
+        exceptions.GetArrayLength().ShouldBe(CloudWatchEventFormatter.MaxExceptions + 1);
+        exceptions[0].GetProperty("Message").GetString().ShouldBe("level 19999");
+        exceptions.EnumerateArray().Last().GetProperty("Message").GetString().ShouldContain("further inner exceptions cut");
+    }
+
+    [Fact]
+    public void WhenNothingCanBeCutToFit_TheEventIsStillReported_MarkedTruncated()
+    {
+        // Thirty-two inner exceptions, each with a message at its cap and escaped six-fold: over the limit
+        // with every stack frame gone.
+        Exception chain = null;
+        for (var i = 0; i < 40; i++)
+            chain = new InvalidOperationException(new string('<', 20_000), chain);
+
+        var message = CloudWatchEventFormatter.Format(Event(exception: chain));
+
+        Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
+        using var document = JsonDocument.Parse(message);
+        document.RootElement.GetProperty("Truncated").GetBoolean().ShouldBeTrue();
+        document.RootElement.GetProperty("Title").GetString().ShouldBe("it broke");
+        document.RootElement.GetProperty("Exceptions")[0].GetProperty("Type").GetString().ShouldBe("System.InvalidOperationException");
+    }
+
+    [Fact]
+    public void AnExceptionWhoseGettersThrow_IsReported_NotThrown()
+    {
+        var message = Should.NotThrow(() => CloudWatchEventFormatter.Format(Event(exception: new ThrowingException())));
+
+        using var document = JsonDocument.Parse(message);
+        var exception = document.RootElement.GetProperty("Exceptions")[0];
+        exception.GetProperty("Type").GetString().ShouldEndWith("ThrowingException");
+        exception.GetProperty("Message").GetString().ShouldContain("Message threw NotSupportedException");
+        exception.GetProperty("StackTrace").GetArrayLength().ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(500)]
+    public void AContextNestedAtTheParserLimit_IsNotThrown(int depth)
+    {
+        var context = new string('[', depth) + new string(']', depth);
+
+        var message = Should.NotThrow(() => CloudWatchEventFormatter.Format(Event(e => e.ErrorContext = context, Thrown(new InvalidOperationException("x")))));
+
+        using var document = JsonDocument.Parse(message, new JsonDocumentOptions { MaxDepth = 1_024 });
+        document.RootElement.GetProperty("Exceptions").GetArrayLength().ShouldBe(1);
+    }
+
     [Fact]
     public void ADeepStack_IsCutToFit_AndSaysHowMuch()
     {

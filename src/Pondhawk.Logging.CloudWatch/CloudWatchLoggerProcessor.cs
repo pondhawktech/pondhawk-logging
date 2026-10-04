@@ -28,12 +28,14 @@ namespace Pondhawk.Logging.CloudWatch;
 /// <para>
 /// Anything that is a verdict on the configuration — no permission, no stream name — is noted once on
 /// stdout and turns the provider off: for the process when it is about the process (no client, no instance
-/// id), until the next <see cref="CloudWatchDestination.Rebind"/> when it is about the group. Any other
-/// failure, to create the stream or to send a batch, pauses it for <see cref="PauseAfterFailure"/>, so an
-/// outage costs the flush one bounded call a minute rather than one per batch. While paused, and while the
-/// destination is unbound, the most recent Warning-and-above events are held
-/// (<see cref="CloudWatchOptions.MaxHeldEvents"/>) and go out with the next batch that can be sent; lower
-/// levels are discarded.
+/// id), until the next <see cref="CloudWatchDestination.Rebind"/> when it is about the group. A request
+/// CloudWatch refuses as invalid is dropped, never sent again: one bad batch must not hold up the rest. Any
+/// other failure, to create the stream or to send a batch, pauses the provider for
+/// <see cref="PauseAfterFailure"/>, so an outage costs the flush one bounded call a minute rather than one
+/// per batch. While paused, and while the destination is unbound, the most recent Warning-and-above events
+/// are held (<see cref="CloudWatchOptions.MaxHeldEvents"/>); lower levels are discarded. Held events go out
+/// as soon as they can — with the next batch, or on their own once the pause is over — and get one last
+/// attempt when the provider is disposed.
 /// </para>
 /// <para>
 /// <see cref="Post"/> runs on the calling thread, so it is where the correlation id is read and the pooled
@@ -57,14 +59,34 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     /// <summary>How long CloudWatch is left alone after a call to it fails.</summary>
     public static readonly TimeSpan PauseAfterFailure = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// How many times the instance id is asked for, a pause apart, before its absence is taken as a verdict:
+    /// instance metadata can be briefly unreachable while a host is still coming up.
+    /// </summary>
+    public const int MaxInstanceIdAttempts = 3;
+
+    /// <summary>How often held events are looked at again when no new event arrives to carry them out.</summary>
+    internal static readonly TimeSpan DefaultHeldRetryInterval = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan DefaultFlushInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxFlushInterval = TimeSpan.FromHours(1);
+
     private readonly Func<IAmazonCloudWatchLogs> _clientFactory;
     private readonly CloudWatchDestination _destination;
     private readonly string _service;
-    private readonly CloudWatchOptions _options;
     private readonly Func<string?> _instanceId;
     private readonly bool _ownsClient;
     private readonly Func<DateTime> _utcNow;
     private readonly Action<string> _note;
+
+    // The options, read once and made safe: a value that makes no sense must not be able to stop the flush
+    // loop, which nothing would notice.
+    private readonly string? _streamName;
+    private readonly int _retentionDays;
+    private readonly int _batchSize;
+    private readonly TimeSpan _flushInterval;
+    private readonly int _maxHeld;
+    private readonly TimeSpan _heldRetryInterval;
 
     private readonly Channel<CloudWatchEvent> _channel;
     private readonly TaskCompletionSource<bool> _flushCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -81,6 +103,8 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     private volatile bool _offForProcess;
     private long _boundVersion;
     private long _pausedUntilTicks;
+    private int _instanceIdAttempts;
+    private long _quietUntilTicks;
 
     private readonly object _heldLock = new();
     private readonly Queue<Outgoing> _held = new();
@@ -105,11 +129,11 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         CloudWatchOptions options,
         Func<string?> instanceId,
         bool ownsClient = false)
-        : this(clientFactory, destination, service, options, instanceId, ownsClient, utcNow: null, note: null)
+        : this(clientFactory, destination, service, options, instanceId, ownsClient, utcNow: null, note: null, heldRetryInterval: null)
     {
     }
 
-    /// <summary>As the public constructor, with the clock and the stdout notes replaceable for tests.</summary>
+    /// <summary>As the public constructor, with the clock, the stdout notes and the held-event retry replaceable for tests.</summary>
     internal CloudWatchLoggerProcessor(
         Func<IAmazonCloudWatchLogs> clientFactory,
         CloudWatchDestination destination,
@@ -118,7 +142,8 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         Func<string?> instanceId,
         bool ownsClient,
         Func<DateTime>? utcNow,
-        Action<string>? note)
+        Action<string>? note,
+        TimeSpan? heldRetryInterval)
     {
         Guard.IsNotNull(clientFactory);
         Guard.IsNotNull(destination);
@@ -129,12 +154,20 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         _clientFactory = clientFactory;
         _destination = destination;
         _service = service;
-        _options = options;
         _instanceId = instanceId;
         _ownsClient = ownsClient;
         _utcNow = utcNow ?? (static () => DateTime.UtcNow);
         _note = note ?? WriteNote;
         _boundVersion = destination.Current.Version;
+
+        _streamName = string.IsNullOrWhiteSpace(options.StreamName) ? null : options.StreamName;
+        _retentionDays = options.RetentionDays;
+        _batchSize = Math.Clamp(options.BatchSize, 1, MaxBatchEvents);
+        _flushInterval = options.FlushInterval < TimeSpan.Zero
+            ? DefaultFlushInterval
+            : options.FlushInterval > MaxFlushInterval ? MaxFlushInterval : options.FlushInterval;
+        _maxHeld = Math.Max(0, options.MaxHeldEvents);
+        _heldRetryInterval = heldRetryInterval is { } retry && retry > TimeSpan.Zero ? retry : DefaultHeldRetryInterval;
 
         _channel = Channel.CreateUnbounded<CloudWatchEvent>(new UnboundedChannelOptions
         {
@@ -180,6 +213,11 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         try
         {
             if (Volatile.Read(ref _disposed) != 0)
+                return;
+
+            // The filter AddCloudWatch registers keeps Debug and Trace away, but a more specific rule in the
+            // host's configuration would outrank it. This is what makes "never" true.
+            if (log.LogInfo.LogLevel < CloudWatchLoggingBuilderExtensions.MinimumLevel)
                 return;
 
             _channel.Writer.TryWrite(Capture(log));
@@ -235,50 +273,58 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
 
     private async Task FlushLoopAsync()
     {
-        var batch = new List<CloudWatchEvent>(_options.BatchSize);
+        var batch = new List<CloudWatchEvent>(Math.Min(_batchSize, 1_024));
         var reader = _channel.Reader;
 
         try
         {
             while (true)
             {
-                batch.Clear();
-
-                if (!await reader.WaitToReadAsync().ConfigureAwait(false))
-                    break;
-
-                using var timeoutCts = new CancellationTokenSource(_options.FlushInterval);
-
                 try
                 {
-                    while (batch.Count < _options.BatchSize)
-                    {
-                        if (reader.TryRead(out var logEvent))
-                        {
-                            batch.Add(logEvent);
-                        }
-                        else if (!await reader.WaitToReadAsync(timeoutCts.Token).ConfigureAwait(false))
-                        {
-                            break;
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Timeout expired, flush what we have.
-                }
+                    batch.Clear();
 
-                if (batch.Count > 0)
-                {
+                    if (!await WaitForWorkAsync(reader).ConfigureAwait(false))
+                        break;
+
+                    using var timeoutCts = new CancellationTokenSource(_flushInterval);
+
                     try
                     {
-                        await SendAsync(batch).ConfigureAwait(false);
+                        while (batch.Count < _batchSize)
+                        {
+                            if (reader.TryRead(out var logEvent))
+                            {
+                                batch.Add(logEvent);
+                            }
+                            else if (!await reader.WaitToReadAsync(timeoutCts.Token).ConfigureAwait(false))
+                            {
+                                break;
+                            }
+                        }
                     }
-                    catch
+                    catch (OperationCanceledException)
                     {
-                        // Backstop: the drain loop must outlive any single batch failure.
+                        // Timeout expired, flush what we have.
                     }
+
+                    await SendAsync(batch, final: false).ConfigureAwait(false);
                 }
+                catch
+                {
+                    // Backstop: the drain loop must outlive any single batch failure.
+                }
+            }
+
+            try
+            {
+                // Shutting down: one last attempt for what is still held, pause or no pause.
+                batch.Clear();
+                await SendAsync(batch, final: true).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Nothing more can be done for it.
             }
         }
         finally
@@ -287,9 +333,30 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private async Task SendAsync(List<CloudWatchEvent> batch)
+    /// <summary>
+    /// Waits for an event to arrive. With events held it waits only <see cref="_heldRetryInterval"/>, so
+    /// they go out once they can even if nothing else is ever logged. False when the channel is finished.
+    /// </summary>
+    private async Task<bool> WaitForWorkAsync(ChannelReader<CloudWatchEvent> reader)
     {
-        if (_offForProcess)
+        if (HeldEventCount == 0)
+            return await reader.WaitToReadAsync().ConfigureAwait(false);
+
+        using var retryCts = new CancellationTokenSource(_heldRetryInterval);
+
+        try
+        {
+            return await reader.WaitToReadAsync(retryCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+    }
+
+    private async Task SendAsync(List<CloudWatchEvent> batch, bool final)
+    {
+        if (_offForProcess || (batch.Count == 0 && HeldEventCount == 0))
             return;
 
         // One snapshot for the whole send, so the group the stream was made in and the group the batch is
@@ -300,7 +367,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         {
             // No group named yet. This is a configured state, not a failure: nothing is called and nothing
             // is noted, and the events describing how the process came up survive to the rebind.
-            Hold(batch.Select(ToOutgoing));
+            Hold(batch);
             return;
         }
 
@@ -316,9 +383,9 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         if (_state == State.Off)
             return;
 
-        if (IsPaused)
+        if (IsPaused && !final)
         {
-            Hold(batch.Select(ToOutgoing));
+            Hold(batch);
             return;
         }
 
@@ -328,17 +395,19 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         if (IsOff)
             return;
 
-        var outgoing = batch.Select(ToOutgoing);
-
         if (_state != State.Ready)
         {
-            Hold(outgoing);
+            Hold(batch);
             return;
         }
 
-        // Held events go out with the first batch that can, in time order with it.
+        // Formatted before the held events are taken, so nothing that goes wrong here can cost them. Held
+        // events go out with the first batch that can, in time order with it.
+        var outgoing = batch.ConvertAll(ToOutgoing);
         var events = TakeHeld().Concat(outgoing).OrderBy(e => e.Input.Timestamp).ToList();
-        await PutAsync(binding.LogGroup, Chunk(events).ToList()).ConfigureAwait(false);
+
+        if (events.Count > 0)
+            await PutAsync(binding.LogGroup, Chunk(events).ToList()).ConfigureAwait(false);
     }
 
     private async Task PutAsync(string logGroup, List<List<Outgoing>> chunks)
@@ -347,12 +416,28 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         {
             try
             {
-                await _client!.PutLogEventsAsync(new PutLogEventsRequest
+                var response = await _client!.PutLogEventsAsync(new PutLogEventsRequest
                 {
                     LogGroupName = logGroup,
                     LogStreamName = _stream,
                     LogEvents = chunks[i].ConvertAll(e => e.Input),
                 }).ConfigureAwait(false);
+
+                if (response?.RejectedLogEventsInfo is { } rejected)
+                    NoteRejected(logGroup, rejected);
+            }
+            catch (InvalidParameterException cause)
+            {
+                // A verdict on this request, not on CloudWatch: sending it again would get the same answer,
+                // and holding it would put it at the head of every batch from here on. It is dropped, and
+                // the rest goes on.
+                NoteQuietly(logGroup, $"CloudWatch refused a batch of {chunks[i].Count} event(s) as invalid and it was dropped ({cause.Message})");
+            }
+            catch (Exception cause) when (IsDenied(cause))
+            {
+                _state = State.Off;
+                Note(logGroup, $"not allowed to put events to stream {_stream} ({cause.Message}). Grant logs:PutLogEvents. CloudWatch logging is off for this group");
+                return;
             }
             catch (Exception cause)
             {
@@ -384,7 +469,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             catch (Exception cause)
             {
                 _offForProcess = true;
-                _note($"CloudWatch logging ({logGroup}): could not build a CloudWatch Logs client ({cause.Message}). CloudWatch logging is off until restart");
+                Note(logGroup, $"could not build a CloudWatch Logs client ({cause.Message}). CloudWatch logging is off until restart");
                 return;
             }
         }
@@ -393,10 +478,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         {
             var stream = ResolveStream(logGroup);
             if (stream is null)
-            {
-                _offForProcess = true;
                 return;
-            }
 
             _stream = stream;
         }
@@ -407,6 +489,14 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             outcome = await CreateGroupAsync(logGroup).ConfigureAwait(false);
             if (outcome == Outcome.Done)
                 outcome = await CreateStreamAsync(logGroup).ConfigureAwait(false);
+
+            if (outcome == Outcome.GroupMissing)
+            {
+                // Created, or found to exist, and still not there for the stream: not yet visible, or
+                // deleted in between. Either way not a verdict.
+                Pause(logGroup, "the log group was created but is not there yet");
+                outcome = Outcome.Transient;
+            }
         }
 
         _state = outcome switch
@@ -417,12 +507,18 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         };
     }
 
+    /// <summary>
+    /// The stream name: the one the host supplied, or <c>&lt;instance-id&gt;/&lt;service&gt;</c>. Null when
+    /// there is no instance id — tried again after a pause, <see cref="MaxInstanceIdAttempts"/> times in
+    /// all, and only then taken as a verdict that turns CloudWatch off for the process.
+    /// </summary>
     private string? ResolveStream(string logGroup)
     {
-        if (!string.IsNullOrWhiteSpace(_options.StreamName))
-            return _options.StreamName;
+        if (_streamName is not null)
+            return _streamName;
 
         string? instanceId;
+        var why = "no instance id -- not on EC2?";
         try
         {
             instanceId = _instanceId();
@@ -430,16 +526,23 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         catch (Exception cause)
         {
             instanceId = null;
-            _note($"CloudWatch logging ({logGroup}): could not read the instance id ({cause.Message})");
+            why = $"could not read the instance id ({cause.Message})";
         }
 
-        if (string.IsNullOrWhiteSpace(instanceId))
+        if (!string.IsNullOrWhiteSpace(instanceId))
+            return $"{instanceId}/{_service}";
+
+        if (++_instanceIdAttempts < MaxInstanceIdAttempts)
         {
-            _note($"CloudWatch logging ({logGroup}): no instance id -- not on EC2? Set CloudWatchOptions.StreamName to log from here. CloudWatch logging is off until restart");
+            // Instance metadata can be out of reach for a moment while a host comes up. Quietly: it is not
+            // yet known to be a problem.
+            Interlocked.Exchange(ref _pausedUntilTicks, (_utcNow() + PauseAfterFailure).Ticks);
             return null;
         }
 
-        return $"{instanceId}/{_service}";
+        _offForProcess = true;
+        Note(logGroup, $"{why} Asked {MaxInstanceIdAttempts} times. Set CloudWatchOptions.StreamName to log from here. CloudWatch logging is off until restart");
+        return null;
     }
 
     private async Task<Outcome> CreateStreamAsync(string logGroup)
@@ -458,9 +561,9 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         {
             return Outcome.GroupMissing;
         }
-        catch (Exception cause) when (IsVerdict(cause))
+        catch (Exception cause) when (IsDenied(cause) || cause is InvalidParameterException)
         {
-            _note($"CloudWatch logging ({logGroup}): cannot create stream {_stream} ({cause.Message}). CloudWatch logging is off for this group");
+            Note(logGroup, $"cannot create stream {_stream} ({cause.Message}). CloudWatch logging is off for this group");
             return Outcome.Final;
         }
         catch (Exception cause)
@@ -486,9 +589,9 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             // Another host created it first. Its retention is that host's business.
             return Outcome.Done;
         }
-        catch (Exception cause) when (IsVerdict(cause))
+        catch (Exception cause) when (IsDenied(cause) || cause is InvalidParameterException)
         {
-            _note($"CloudWatch logging ({logGroup}): the log group does not exist and this host may not create it ({cause.Message}). Create it or grant logs:CreateLogGroup. CloudWatch logging is off for this group");
+            Note(logGroup, $"the log group does not exist and this host may not create it ({cause.Message}). Create it or grant logs:CreateLogGroup. CloudWatch logging is off for this group");
             return Outcome.Final;
         }
         catch (Exception cause)
@@ -499,21 +602,20 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
 
         try
         {
-            await _client!.PutRetentionPolicyAsync(new PutRetentionPolicyRequest { LogGroupName = logGroup, RetentionInDays = _options.RetentionDays }).ConfigureAwait(false);
+            await _client!.PutRetentionPolicyAsync(new PutRetentionPolicyRequest { LogGroupName = logGroup, RetentionInDays = _retentionDays }).ConfigureAwait(false);
         }
         catch (Exception cause)
         {
             // The group exists and can be written to; it will simply keep events until someone sets its
             // retention.
-            _note($"CloudWatch logging ({logGroup}): created the log group but could not set its retention to {_options.RetentionDays} days ({cause.Message}). Set it by hand");
+            Note(logGroup, $"created the log group but could not set its retention to {_retentionDays} days ({cause.Message}). Set it by hand");
         }
 
         return Outcome.Done;
     }
 
-    // Denied, or told the request itself is wrong: asking again will get the same answer.
-    private static bool IsVerdict(Exception cause) =>
-        cause is AccessDeniedException or InvalidParameterException
+    private static bool IsDenied(Exception cause) =>
+        cause is AccessDeniedException
         || cause is AmazonServiceException { ErrorCode: "AccessDeniedException" or "UnrecognizedClientException" };
 
     private static Outgoing ToOutgoing(CloudWatchEvent logEvent) =>
@@ -525,17 +627,43 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             },
             logEvent.Level >= LogLevel.Warning);
 
-    /// <summary>Keeps the Warning-and-above events of <paramref name="events"/>, the most recent under the cap.</summary>
+    /// <summary>
+    /// Keeps the Warning-and-above events of <paramref name="batch"/>. Only those are formatted: during an
+    /// outage everything else is discarded, and is not worth the work first.
+    /// </summary>
+    private void Hold(List<CloudWatchEvent> batch)
+    {
+        if (_maxHeld == 0)
+            return;
+
+        foreach (var logEvent in batch)
+        {
+            if (logEvent.Level >= LogLevel.Warning)
+                Hold(ToOutgoing(logEvent));
+        }
+    }
+
+    /// <summary>Keeps the Warning-and-above events of a send that failed.</summary>
     private void Hold(IEnumerable<Outgoing> events)
     {
+        foreach (var e in events)
+        {
+            if (e.Hold)
+                Hold(e);
+        }
+    }
+
+    // The most recent under the cap.
+    private void Hold(Outgoing e)
+    {
+        if (_maxHeld == 0)
+            return;
+
         lock (_heldLock)
         {
-            foreach (var e in events.Where(e => e.Hold))
-            {
-                _held.Enqueue(e);
-                while (_held.Count > _options.MaxHeldEvents)
-                    _held.Dequeue();
-            }
+            _held.Enqueue(e);
+            while (_held.Count > _maxHeld)
+                _held.Dequeue();
         }
     }
 
@@ -579,7 +707,35 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     private void Pause(string logGroup, string message)
     {
         Interlocked.Exchange(ref _pausedUntilTicks, (_utcNow() + PauseAfterFailure).Ticks);
-        _note($"CloudWatch logging ({logGroup}): {message}. Not sending to CloudWatch for {PauseAfterFailure.TotalMinutes:0} minute(s); warnings and errors are held, the most recent {_options.MaxHeldEvents}");
+        Note(logGroup, $"{message}. Not sending to CloudWatch for {PauseAfterFailure.TotalMinutes:0} minute(s); warnings and errors are held, the most recent {_maxHeld}");
+    }
+
+    private void NoteRejected(string logGroup, RejectedLogEventsInfo rejected)
+    {
+        var why = rejected.TooNewLogEventStartIndex is not null
+            ? "some as too far in the future"
+            : "some as too old or past the group's retention";
+
+        NoteQuietly(logGroup, $"CloudWatch accepted a batch but rejected {why}. Check this host's clock");
+    }
+
+    private void Note(string logGroup, string message)
+    {
+        // One line, whatever a message from AWS contains: under journald a second line would carry its own
+        // priority.
+        var line = $"CloudWatch logging ({logGroup}): {message}";
+        _note(line.Replace('\r', ' ').Replace('\n', ' '));
+    }
+
+    /// <summary>As <see cref="Note"/>, at most once a pause: for what could otherwise be said per batch.</summary>
+    private void NoteQuietly(string logGroup, string message)
+    {
+        var now = _utcNow().Ticks;
+        if (now < Interlocked.Read(ref _quietUntilTicks))
+            return;
+
+        Interlocked.Exchange(ref _quietUntilTicks, now + PauseAfterFailure.Ticks);
+        Note(logGroup, message);
     }
 
     // Straight to stdout: logging through the factory here would feed the failure back into the provider

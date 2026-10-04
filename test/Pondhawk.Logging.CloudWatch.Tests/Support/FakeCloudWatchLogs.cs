@@ -39,6 +39,15 @@ public class FakeCloudWatchLogs : DispatchProxy
     /// <summary>PutLogEvents fails, as a throttle or outage would.</summary>
     public bool PutFails { get; set; }
 
+    /// <summary>The role may create streams but not put events.</summary>
+    public bool PutDenied { get; set; }
+
+    /// <summary>A request holding a message that contains this is refused as invalid, as an oversized event would be.</summary>
+    public string RejectMessagesContaining { get; set; }
+
+    /// <summary>PutLogEvents succeeds but reports some events rejected as too far in the future.</summary>
+    public bool RejectsSomeAsTooNew { get; set; }
+
     /// <summary>CreateLogStream fails this many more times, as an outage would, then works.</summary>
     public int StreamOutages { get; set; }
 
@@ -117,10 +126,17 @@ public class FakeCloudWatchLogs : DispatchProxy
         lock (_gate)
         {
             Trouble(request.LogGroupName);
+            if (PutDenied)
+                throw new AccessDeniedException("User is not authorized to perform: logs:PutLogEvents");
             if (PutFails)
                 throw new ServiceUnavailableException("The service cannot complete the request");
+            if (RejectMessagesContaining is not null && request.LogEvents.Any(e => e.Message.Contains(RejectMessagesContaining, StringComparison.Ordinal)))
+                throw new InvalidParameterException("Log event too large");
             Puts.Add(request);
-            return Task.FromResult(new PutLogEventsResponse());
+            return Task.FromResult(new PutLogEventsResponse
+            {
+                RejectedLogEventsInfo = RejectsSomeAsTooNew ? new RejectedLogEventsInfo { TooNewLogEventStartIndex = 0 } : null,
+            });
         }
     }
 
