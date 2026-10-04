@@ -61,7 +61,7 @@ public class CloudWatchDestinationTests
     }
 
     [Theory]
-    [InlineData("/fabrica-one/PartnerConnect-Production", "/fabrica-one/PartnerConnect-Production")]
+    [InlineData("/my-app/Orders-Production", "/my-app/Orders-Production")]
     [InlineData("/pondhawk-one/Partner Connect-UAT", "/pondhawk-one/Partner-Connect-UAT")]
     [InlineData("a:b*c", "a-b-c")]
     public void Sanitize_ReplacesWhatAGroupNameMayNotContain(string text, string expected)
