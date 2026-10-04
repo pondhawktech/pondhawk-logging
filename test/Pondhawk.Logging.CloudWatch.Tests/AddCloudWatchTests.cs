@@ -94,6 +94,24 @@ public class AddCloudWatchTests
     }
 
     [Fact]
+    public void DebugAndTrace_NeverGo_EvenWhenAMoreSpecificRuleAsksForThem()
+    {
+        // A rule naming the provider and a category outranks the floor AddCloudWatch registers; an
+        // appsettings "Logging:CloudWatch:LogLevel:My" entry is the same thing.
+        var (client, fake) = FakeCloudWatchLogs.Create();
+        var factory = LoggerFactory.Create(b =>
+        {
+            AddFake(b, client);
+            b.AddFilter<CloudWatchLoggerProvider>("My", LogLevel.Trace);
+        });
+
+        LogEveryLevel(factory.CreateLogger("My.Category"));
+        factory.Dispose();
+
+        Levels(fake).ShouldBe(["Information", "Warning", "Error", "Critical"]);
+    }
+
+    [Fact]
     public void AddCloudWatch_RegistersTheDestination_AndCannotStopTheHostStarting()
     {
         var destination = CloudWatchDestination.Unbound();

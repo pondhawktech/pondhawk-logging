@@ -33,7 +33,7 @@ builder.Logging.AddCloudWatch("/my-app/Production", "orders", o =>
 | `Credentials` | `null` | Null uses the SDK's default credential chain. |
 | `Region` | `null` | Null lets the SDK find the region. |
 | `RetentionDays` | `30` | Given to a group this provider creates; an existing group's retention is never touched. |
-| `BatchSize` / `FlushInterval` | `500` / 1 s | A send happens at whichever comes first. |
+| `BatchSize` / `FlushInterval` | `500` / 1 s | A send happens at whichever comes first. Clamped to 1–10,000 and to at most an hour. |
 | `MaxHeldEvents` | `100` | Warning-and-above events held while there is nowhere to send them. |
 
 ## The event
@@ -62,8 +62,7 @@ The shape follows what the event carries, never a guess at its text:
   of `\n`s).
 - **`ErrorWithContext(cause, context, message)`** adds `Context`, the context object as nested JSON.
   `Context` is always an object — a context that serializes to a string, number or array is wrapped as
-  `{ "Value": ... }` — so `Context.OrderId` can always be queried. `[Sensitive]` members are already masked
-  by the logging API.
+  `{ "Value": ... }` — so `Context.OrderId` can always be queried.
 - **`LogJson` / `LogObject`** give `Payload` as nested JSON, never JSON inside a string. JSON that does not
   parse stays text rather than being lost.
 - **`LogSql` / `LogXml` / `LogYaml` / `LogText`** give `Payload` as text, or an array of lines when there
@@ -79,8 +78,19 @@ fields @timestamp, Title, Context.OrderId
 
 A metric filter for an error alarm is `{ $.Level = "Error" || $.Level = "Critical" }`.
 
-An event is kept under 256 KB. One that would be larger loses its context first, then payload lines, and
-stack frames only as a last resort — each cut is marked in the event.
+Every event is kept under 256 KB, whatever it carries. The title (16,384 characters), the category, the
+correlation id, each exception message (16,384 characters) and the exception chain (32) are cut to fixed
+lengths. An event still too large loses its context first, then payload lines, and stack frames only as a
+last resort — each cut is marked in the event. One that cannot be cut to fit that way is written as its
+level, category and title alone, with `"Truncated": true`.
+
+### What reaches CloudWatch
+
+Everything logged at Information and above, as logged. `[Sensitive]` masks attributed members of the
+objects the logging API serializes — `LogObject`, and the context passed to `ErrorWithContext`. It does
+**not** cover message arguments (`LogInformation("... {Token}", token)`), strings passed to
+`LogJson`/`LogText`/`LogSql`/`LogXml`/`LogYaml`, exception messages, or anonymous-type contexts, which
+cannot carry the attribute. Keep secrets out of those.
 
 ## It cannot stop or slow the host
 
@@ -89,14 +99,23 @@ stack frames only as a last resort — each cut is marked in the event.
   configured, for one — turns CloudWatch off; it does not throw into the host.
 - **The stream and the group are created for you.** An existing stream is reused (a restarted service). A
   missing group is created and given `RetentionDays` — only when this host is the one that created it.
-- **A verdict on the configuration turns it off, noted once on stdout.** No instance id and no
-  `StreamName`, or no client: off until restart. Access denied on the group: off until a
-  [rebind](#a-group-that-arrives-later) names another.
+- **A verdict on the configuration turns it off, noted once on stdout.** No client, or no `StreamName` and
+  no instance id after asking three times a minute apart (instance metadata can be out of reach while a
+  host comes up): off until restart. Access denied on the group — creating the stream or putting events:
+  off until a [rebind](#a-group-that-arrives-later) names another.
 - **Anything else pauses it for a minute** — a timeout, a throttle, an outage. Each call is one attempt of
   at most five seconds with no SDK retries, so an outage costs the flush one bounded call a minute rather
   than one per batch.
 - **Warnings and errors survive a pause.** The most recent `MaxHeldEvents` events at Warning and above are
-  held and go out, in time order, with the next batch that can be sent. Lower levels are discarded.
+  held and go out, in time order, as soon as they can: with the next batch, or on their own once the pause
+  is over. They get one last attempt when the provider is disposed, so the error a service logs on its way
+  down is not lost to a pause. Lower levels are discarded, unformatted.
+- **No input can stop it.** A batch CloudWatch refuses as invalid is dropped and noted, never retried, so
+  one bad event cannot hold up the rest. An event that cannot be formatted — an exception whose `Message`
+  throws — is reported with what can be said of it. Option values that make no sense are clamped.
+- **Rejected events are noted.** CloudWatch accepts a batch and silently rejects events more than two hours
+  in the future or older than 14 days; that usually means the host's clock is wrong, and it is said on
+  stdout, at most once a minute.
 
 Notes go straight to stdout (prefixed `<4>` under journald), never through the logging factory, so a
 failing provider cannot feed its own failure back into itself.
@@ -129,22 +148,40 @@ There is no setting and no switch. The floor is a filter scoped to the CloudWatc
 follow the Watch switch table — a provider-scoped rule is more specific than `AddWatch`'s global switch
 filter — and it does not clamp the Watch provider registered beside it.
 
+The floor applies to **every category**, the framework's included. Because the rule is scoped to the
+provider, a host's usual `"Logging": { "LogLevel": { "Microsoft.AspNetCore": "Warning" } }` does not reach
+CloudWatch, so ASP.NET Core request logs, `HttpClient` request URIs and EF Core command text at Information
+all go there. To keep a category out, raise it for this provider:
+
+```json
+{ "Logging": { "CloudWatch": { "LogLevel": { "Microsoft": "Warning", "System.Net.Http": "Warning" } } } }
+```
+
+Raising works; lowering does not. Debug and Trace are refused by the provider itself, whatever a rule says.
+
 Note that `ILogger.IsEnabled` is true when *any* provider would keep the event, so with CloudWatch
 registered every Information call site formats, whatever the switch table says for its category.
 
 ## IAM
 
+The least a host needs — create the group ahead of time, and scope the policy to that one group:
+
 ```json
 {
   "Effect": "Allow",
-  "Action": [ "logs:CreateLogStream", "logs:PutLogEvents", "logs:CreateLogGroup", "logs:PutRetentionPolicy" ],
+  "Action": [ "logs:CreateLogStream", "logs:PutLogEvents" ],
   "Resource": [
-    "arn:aws:logs:<region>:<account>:log-group:/my-app/*",
-    "arn:aws:logs:<region>:<account>:log-group:/my-app/*:*"
+    "arn:aws:logs:<region>:<account>:log-group:/my-app/Production",
+    "arn:aws:logs:<region>:<account>:log-group:/my-app/Production:*"
   ]
 }
 ```
 
-`logs:CreateLogGroup` and `logs:PutRetentionPolicy` are needed only if the provider is to create a missing
-group. Without them, create the group ahead of time; a host that meets a missing group it may not create
-notes it once and turns CloudWatch off.
+A host that meets a missing group it may not create notes it once and turns CloudWatch off.
+
+To have the provider create a missing group, add `logs:CreateLogGroup` and `logs:PutRetentionPolicy` — and
+know what that grants. `PutRetentionPolicy` lets whoever holds the role shorten the retention of any group
+the resource pattern covers, which deletes its older history; a wildcard such as `/my-app/*` extends that,
+and the ability to write into other hosts' streams, to every group under the prefix. Keep the pattern as
+narrow as the groups this host actually writes to. The stream name is the only thing that identifies the
+writing host.

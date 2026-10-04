@@ -42,7 +42,8 @@ public class CloudWatchLoggerProcessorTests
         Action<FakeCloudWatchLogs> arrange = null,
         Action<CloudWatchOptions> configure = null,
         string instanceId = "i-0123",
-        Func<IAmazonCloudWatchLogs> clientFactory = null)
+        Func<IAmazonCloudWatchLogs> clientFactory = null,
+        Func<string> instanceIdSource = null)
     {
         var (client, fake) = FakeCloudWatchLogs.Create();
         arrange?.Invoke(fake);
@@ -64,7 +65,7 @@ public class CloudWatchLoggerProcessorTests
             () =>
             {
                 harness.InstanceIdReads++;
-                return instanceId;
+                return instanceIdSource is not null ? instanceIdSource() : instanceId;
             },
             ownsClient: false,
             utcNow: () => harness.Now,
@@ -72,7 +73,8 @@ public class CloudWatchLoggerProcessorTests
             {
                 lock (notes)
                     notes.Add(message);
-            });
+            },
+            heldRetryInterval: TimeSpan.FromMilliseconds(50));
 
         var factory = LoggerFactory.Create(b =>
         {
@@ -228,18 +230,47 @@ public class CloudWatchLoggerProcessorTests
     }
 
     [Fact]
-    public void WithNoInstanceId_AndNoStreamName_CloudWatchStaysOff()
+    public async Task WithNoInstanceId_AndNoStreamName_CloudWatchTurnsOff_AfterAskingThreeTimes()
     {
         var harness = Build(instanceId: null);
 
-        harness.Logger.LogError("one");
-        harness.Logger.LogError("two");
+        for (var attempt = 1; attempt <= CloudWatchLoggerProcessor.MaxInstanceIdAttempts; attempt++)
+        {
+            harness.Processor.IsOff.ShouldBeFalse();
+            harness.Logger.LogError("attempt {Attempt}", attempt);
+            (await WaitUntil(() => harness.InstanceIdReads == attempt)).ShouldBeTrue();
+            (await WaitUntil(() => harness.Processor.IsPaused || harness.Processor.IsOff)).ShouldBeTrue();
+            harness.Now += CloudWatchLoggerProcessor.PauseAfterFailure + TimeSpan.FromSeconds(1);
+        }
+
+        harness.Logger.LogError("after the verdict");
         harness.Dispose();
 
         harness.Fake.Calls.ShouldBe(0);
         harness.Processor.IsOff.ShouldBeTrue();
-        harness.InstanceIdReads.ShouldBe(1);
+        harness.InstanceIdReads.ShouldBe(CloudWatchLoggerProcessor.MaxInstanceIdAttempts);
         harness.Notes.ShouldHaveSingleItem().ShouldContain("no instance id");
+    }
+
+    [Fact]
+    public async Task AnInstanceId_ThatIsNotThereYet_IsAskedForAgain_AndNothingIsLost()
+    {
+        string instanceId = null;
+        var harness = Build(instanceIdSource: () => instanceId);
+
+        harness.Logger.LogWarning("metadata not up yet");
+        (await WaitUntil(() => harness.Processor.IsPaused)).ShouldBeTrue();
+        harness.Notes.ShouldBeEmpty();
+
+        instanceId = "i-0456";
+        harness.Now += CloudWatchLoggerProcessor.PauseAfterFailure + TimeSpan.FromSeconds(1);
+
+        // No further event: the held warning goes out on its own once the pause is over.
+        (await WaitUntil(() => harness.Fake.Messages.Count == 1)).ShouldBeTrue();
+        harness.Dispose();
+
+        harness.Fake.Puts.ShouldHaveSingleItem().LogStreamName.ShouldBe("i-0456/orders");
+        harness.Fake.Messages.Select(Title).ShouldBe(["metadata not up yet"]);
     }
 
     // ── The group ──
@@ -391,6 +422,153 @@ public class CloudWatchLoggerProcessorTests
 
         harness.Fake.GroupsCreated.ShouldBe([Group]);
         harness.Fake.Messages.Select(Title).ShouldBe(["before", "group gone", "after"]);
+    }
+
+    [Fact]
+    public async Task HeldEvents_GoOutOnTheirOwn_OnceThePauseIsOver()
+    {
+        var harness = Build(arrange: f => f.PutFails = true);
+
+        harness.Logger.LogError("the only thing this service logs today");
+        (await WaitUntil(() => harness.Processor.HeldEventCount == 1)).ShouldBeTrue();
+
+        harness.Fake.PutFails = false;
+        harness.Now += CloudWatchLoggerProcessor.PauseAfterFailure + TimeSpan.FromSeconds(1);
+
+        // Nothing else is logged; the held error must not wait for a next event that may never come.
+        (await WaitUntil(() => harness.Fake.Messages.Count == 1)).ShouldBeTrue();
+        harness.Processor.HeldEventCount.ShouldBe(0);
+        harness.Dispose();
+    }
+
+    [Fact]
+    public async Task HeldEvents_GetOneLastAttempt_AtShutdown_EvenDuringAPause()
+    {
+        var harness = Build(arrange: f => f.PutFails = true);
+
+        harness.Logger.LogWarning("tripped the pause");
+        (await WaitUntil(() => harness.Processor.IsPaused)).ShouldBeTrue();
+
+        // CloudWatch is back, but the pause has most of a minute to run when the service exits.
+        harness.Fake.PutFails = false;
+        harness.Logger.LogCritical("the reason the service is exiting");
+        harness.Dispose();
+
+        harness.Fake.Messages.Select(Title).ShouldBe(["tripped the pause", "the reason the service is exiting"]);
+    }
+
+    [Fact]
+    public async Task ABatchCloudWatchRefusesAsInvalid_IsDropped_AndDoesNotHoldUpTheRest()
+    {
+        var harness = Build(arrange: f => f.RejectMessagesContaining = "POISON");
+
+        harness.Logger.LogWarning("before");
+        harness.Logger.LogError("POISON");
+        harness.Logger.LogWarning("after");
+        harness.Logger.LogInformation("and routine events too");
+        harness.Dispose();
+
+        harness.Fake.Messages.Select(Title).ShouldBe(["before", "after", "and routine events too"]);
+        harness.Processor.IsPaused.ShouldBeFalse();
+        harness.Processor.HeldEventCount.ShouldBe(0);
+        harness.Notes.ShouldHaveSingleItem().ShouldContain("refused a batch");
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task NoPermissionToPut_TurnsCloudWatchOff_NotedOnce()
+    {
+        var harness = Build(arrange: f => f.PutDenied = true);
+
+        harness.Logger.LogError("one");
+        (await WaitUntil(() => harness.Processor.IsOff)).ShouldBeTrue();
+
+        harness.Now += CloudWatchLoggerProcessor.PauseAfterFailure + TimeSpan.FromSeconds(1);
+        harness.Logger.LogError("two");
+        harness.Dispose();
+
+        harness.Processor.IsPaused.ShouldBeFalse();
+        harness.Processor.HeldEventCount.ShouldBe(0);
+        harness.Fake.Calls.ShouldBe(2);   // the stream, and the one refused put
+        harness.Notes.ShouldHaveSingleItem().ShouldContain("logs:PutLogEvents");
+    }
+
+    [Fact]
+    public void EventsCloudWatchRejects_AreNoted_NotSilent()
+    {
+        var harness = Build(arrange: f => f.RejectsSomeAsTooNew = true);
+
+        harness.Logger.LogWarning("one");
+        harness.Logger.LogWarning("two");
+        harness.Dispose();
+
+        // Said once, not per batch.
+        harness.Notes.ShouldHaveSingleItem().ShouldContain("clock");
+    }
+
+    // ── Input that must not stop it ──
+
+    private sealed class ThrowingMessageException : Exception
+    {
+        public override string Message => throw new NotSupportedException("the getter blew up");
+    }
+
+    [Fact]
+    public void AnEventThatCannotBeFormatted_CostsNothingElseInItsBatch()
+    {
+        var harness = Build(configure: o =>
+        {
+            o.BatchSize = 10;
+            o.FlushInterval = TimeSpan.FromMilliseconds(300);
+        });
+
+        harness.Logger.LogWarning("good one");
+        harness.Logger.LogError(new ThrowingMessageException(), "the bad one");
+        harness.Logger.LogWarning("good two");
+        harness.Dispose();
+
+        // All three arrive, the bad one included, with what could be said of its exception.
+        harness.Fake.Messages.Select(Title).ShouldBe(["good one", "the bad one", "good two"]);
+        harness.Fake.Messages[1].ShouldContain("Message threw NotSupportedException");
+    }
+
+    [Fact]
+    public void AnOversizedEvent_IsCut_AndDeliveredWithTheOthers()
+    {
+        var harness = Build();
+
+        harness.Logger.LogWarning("before");
+        harness.Logger.LogError(new InvalidOperationException(new string('m', 2_000_000)), "{Body}", new string('t', 2_000_000));
+        harness.Logger.LogText(LogLevel.Warning, "long first line", new string('<', 300_000) + "\nsecond line");
+        harness.Logger.LogWarning("after");
+        harness.Dispose();
+
+        harness.Fake.Messages.Count.ShouldBe(4);
+        harness.Fake.Messages.ShouldAllBe(m => System.Text.Encoding.UTF8.GetByteCount(m) <= CloudWatchEventFormatter.MaxEventBytes);
+        Title(harness.Fake.Messages[3]).ShouldBe("after");
+    }
+
+    [Theory]
+    [InlineData(0, 20)]
+    [InlineData(-1, 20)]
+    [InlineData(int.MaxValue, 20)]
+    [InlineData(10, -5)]
+    [InlineData(10, 0)]
+    public void OptionValuesThatMakeNoSense_CannotStopDelivery(int batchSize, int flushMilliseconds)
+    {
+        var harness = Build(configure: o =>
+        {
+            o.BatchSize = batchSize;
+            o.FlushInterval = TimeSpan.FromMilliseconds(flushMilliseconds);
+            o.MaxHeldEvents = -3;
+        });
+
+        for (var i = 0; i < 5; i++)
+            harness.Logger.LogWarning("warning {Number}", i);
+
+        harness.Dispose();
+
+        harness.Fake.Messages.Count.ShouldBe(5);
     }
 
     // ── Unbound and rebind ──
