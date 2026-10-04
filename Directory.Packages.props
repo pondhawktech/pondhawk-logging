@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.0.103.4" />
     <PackageVersion Include="Cake.Frosting" Version="6.2.0" />
     <PackageVersion Include="CommunityToolkit.Diagnostics" Version="8.4.2" />
     <PackageVersion Include="MemoryPack" Version="1.21.4" />

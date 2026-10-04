@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Title>Pondhawk Logging — CloudWatch Logs provider</Title>
+    <Description>Amazon CloudWatch Logs provider for Pondhawk.Logging: a ZLogger-based Microsoft.Extensions.Logging provider that writes each event as one JSON object Logs Insights can filter on, creates its own stream (and a missing group), and never blocks or stops the host when CloudWatch is unreachable.</Description>
+    <Authors>Pond Hawk Technologies Inc.</Authors>
+    <Company>Pond Hawk Technologies Inc.</Company>
+    <Copyright>Pond Hawk Technologies Inc. (c) 2026</Copyright>
+    <PackageIcon>pht-small-logo.png</PackageIcon>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/pondhawktech/pondhawk-logging</RepositoryUrl>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pondhawk.Logging.CloudWatch.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pondhawk.Logging\Pondhawk.Logging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\pht-small-logo.png" Pack="true" PackagePath="\" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.CloudWatchLogs" />
+    <PackageReference Include="CommunityToolkit.Diagnostics" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="ZLogger" />
+  </ItemGroup>
+
+</Project>
