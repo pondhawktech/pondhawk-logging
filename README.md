@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   <a href="https://www.nuget.org/packages/Pondhawk.Logging"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging?label=Logging" alt="Pondhawk.Logging on NuGet" /></a>
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.Watch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.Watch?label=Logging.Watch" alt="Pondhawk.Logging.Watch on NuGet" /></a>
+  <a href="https://www.nuget.org/packages/Pondhawk.Logging.CloudWatch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.CloudWatch?label=Logging.CloudWatch" alt="Pondhawk.Logging.CloudWatch on NuGet" /></a>
 </p>
 
 Four packages, all `net8.0` and fully standalone (no dependency on other Pondhawk packages):
