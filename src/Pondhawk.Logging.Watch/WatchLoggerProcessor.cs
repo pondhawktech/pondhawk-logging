@@ -165,7 +165,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     }
 
     /// <summary>
-    /// Converts a ZLogger entry to a <see cref="LogEvent"/> on the calling thread (capturing correlation)
+    /// Converts a ZLogger entry to a <see cref="LogEvent"/> on the calling thread (capturing correlation, subject and tenant)
     /// and queues it for batched delivery, then returns the pooled entry.
     /// </summary>
     /// <param name="log">The ZLogger entry.</param>
@@ -178,6 +178,8 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
             var correlationId = GetCorrelationId();
             var logEvent = ConvertEntry(log, correlationId);
+            logEvent.Subject = CorrelationManager.Subject ?? string.Empty;
+            logEvent.Tenant = CorrelationManager.Tenant ?? string.Empty;
             _channel.Writer.TryWrite(logEvent);
         }
         catch

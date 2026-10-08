@@ -130,6 +130,21 @@ public class Credentials
 }
 ```
 
+### Subject and tenant
+
+Watch shows each event's subject (who the work was for) and tenant, and filters on them. Set them on the
+unit of work with `CorrelationManager.SetSubject` and `SetTenant` (Pondhawk.Logging), and every event logged
+within it carries them:
+
+```csharp
+using (CorrelationManager.Begin())
+{
+    CorrelationManager.SetSubject("kchen");
+    CorrelationManager.SetTenant("acme");
+    logger.LogInformation("Order {Id} placed", order.Id);   // Subject "kchen", Tenant "acme"
+}
+```
+
 ### Changing the destination while running
 
 `AddWatch(watchUrl)` fixes the destination for the life of the process. When the destination
@@ -193,7 +208,7 @@ Correlation ids are the only thing this package uses it for, and it is not expos
 
 ## Key Components
 
-- **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation), then delivers them.
+- **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation, subject and tenant), then delivers them.
 - **Switching** -- Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching (longest prefix wins). `WatchSwitchSource` polls a Watch Server for switch configuration. `AddWatch` turns the switch table into a `Microsoft.Extensions.Logging` filter that gates `IsEnabled`.
 - **HTTP delivery** -- Posts event batches to the Watch Server with a circuit breaker and critical-event buffering.
 - **WatchDestination** -- the server and domain being delivered to, re-read per batch and per switch poll so it can be rebound at runtime without rebuilding the logging factory or dropping buffered events. Can start `Unbound` for a host whose destination arrives after startup.

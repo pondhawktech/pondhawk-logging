@@ -379,6 +379,40 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Captures_SubjectAndTenant_OfTheUnitOfWork()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        using (CorrelationManager.Begin())
+        {
+            CorrelationManager.SetSubject("kchen");
+            CorrelationManager.SetTenant("acme");
+            factory.CreateLogger("C").LogInformation("x");
+        }
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Subject.ShouldBe("kchen");
+        e.Tenant.ShouldBe("acme");
+    }
+
+    [Fact]
+    public async Task Without_ASubject_TheEventsSubjectAndTenant_AreEmpty()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        using (CorrelationManager.Begin())
+            factory.CreateLogger("C").LogInformation("x");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Subject.ShouldBeEmpty();
+        e.Tenant.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Delivers_LogObject_AsJsonPayload()
     {
         var handler = new MockHttpHandler();
