@@ -63,11 +63,22 @@ public class CloudWatchEventFormatterTests
     }
 
     [Fact]
+    public void SubjectAndTenant_AreFields_InsightsCanFilterOn()
+    {
+        var json = Parse(new CloudWatchEvent { Level = LogLevel.Warning, Category = "C", Title = "t", Subject = "kchen", Tenant = "acme" });
+
+        json.GetProperty("Subject").GetString().ShouldBe("kchen");
+        json.GetProperty("Tenant").GetString().ShouldBe("acme");
+    }
+
+    [Fact]
     public void AnEventWithoutPayloadCorrelationOrNesting_LeavesThemOut()
     {
         var json = Parse(new CloudWatchEvent { Level = LogLevel.Warning, Category = "C", Title = "t" });
 
         json.TryGetProperty("CorrelationId", out _).ShouldBeFalse();
+        json.TryGetProperty("Subject", out _).ShouldBeFalse();
+        json.TryGetProperty("Tenant", out _).ShouldBeFalse();
         json.TryGetProperty("Payload", out _).ShouldBeFalse();
         json.TryGetProperty("Context", out _).ShouldBeFalse();
         json.TryGetProperty("Exceptions", out _).ShouldBeFalse();
@@ -230,13 +241,15 @@ public class CloudWatchEventFormatterTests
     }
 
     [Fact]
-    public void AHugeCategoryAndCorrelationId_AreCut()
+    public void AHugeCategoryCorrelationIdSubjectAndTenant_AreCut()
     {
         var message = CloudWatchEventFormatter.Format(new CloudWatchEvent
         {
             Level = LogLevel.Warning,
             Category = new string('c', 1_000_000),
             CorrelationId = new string('i', 1_000_000),
+            Subject = new string('s', 1_000_000),
+            Tenant = new string('t', 1_000_000),
             Title = "t",
         });
 
@@ -293,11 +306,16 @@ public class CloudWatchEventFormatterTests
         for (var i = 0; i < 40; i++)
             chain = new InvalidOperationException(new string('<', 20_000), chain);
 
-        var message = CloudWatchEventFormatter.Format(Event(exception: chain));
+        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent
+        {
+            Level = LogLevel.Error, Category = "My.Category", Title = "it broke", Subject = "kchen", Tenant = "acme", Exception = chain,
+        });
 
         Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
         using var document = JsonDocument.Parse(message);
         document.RootElement.GetProperty("Truncated").GetBoolean().ShouldBeTrue();
+        document.RootElement.GetProperty("Subject").GetString().ShouldBe("kchen", "who it was for survives truncation");
+        document.RootElement.GetProperty("Tenant").GetString().ShouldBe("acme");
         document.RootElement.GetProperty("Title").GetString().ShouldBe("it broke");
         document.RootElement.GetProperty("Exceptions")[0].GetProperty("Type").GetString().ShouldBe("System.InvalidOperationException");
     }

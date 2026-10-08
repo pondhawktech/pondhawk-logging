@@ -146,7 +146,11 @@ public class CloudWatchLoggerProcessorTests
         var harness = Build();
 
         using (CorrelationManager.Begin("corr-42"))
+        {
+            CorrelationManager.SetSubject("kchen");
+            CorrelationManager.SetTenant("acme");
             harness.Logger.ErrorWithContext(new InvalidOperationException("bad state"), new { OrderId = 42 }, "order failed");
+        }
 
         harness.Logger.LogJson(LogLevel.Information, "the request", """{"Path":"/orders"}""");
         harness.Dispose();
@@ -158,6 +162,8 @@ public class CloudWatchLoggerProcessorTests
         error.RootElement.GetProperty("Level").GetString().ShouldBe("Error");
         error.RootElement.GetProperty("Category").GetString().ShouldBe("My.Category");
         error.RootElement.GetProperty("CorrelationId").GetString().ShouldBe("corr-42");
+        error.RootElement.GetProperty("Subject").GetString().ShouldBe("kchen");
+        error.RootElement.GetProperty("Tenant").GetString().ShouldBe("acme");
         error.RootElement.GetProperty("Title").GetString().ShouldBe("order failed");
         error.RootElement.GetProperty("Context").GetProperty("OrderId").GetInt32().ShouldBe(42);
         error.RootElement.GetProperty("Exceptions")[0].GetProperty("Message").GetString().ShouldBe("bad state");
@@ -165,6 +171,7 @@ public class CloudWatchLoggerProcessorTests
         using var info = JsonDocument.Parse(messages[1]);
         info.RootElement.GetProperty("Payload").GetProperty("Path").GetString().ShouldBe("/orders");
         info.RootElement.TryGetProperty("CorrelationId", out _).ShouldBeFalse();
+        info.RootElement.TryGetProperty("Subject", out _).ShouldBeFalse("set on the unit of work, which had ended");
     }
 
     // ── Start-up ──

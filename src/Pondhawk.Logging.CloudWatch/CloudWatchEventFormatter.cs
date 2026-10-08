@@ -8,7 +8,7 @@ namespace Pondhawk.Logging.CloudWatch;
 
 /// <summary>
 /// Writes one event as the JSON object stored in CloudWatch Logs, so Logs Insights can filter on its
-/// fields — <c>Level</c>, <c>Category</c>, <c>CorrelationId</c>, <c>Context</c> — without parsing text.
+/// fields — <c>Level</c>, <c>Category</c>, <c>CorrelationId</c>, <c>Subject</c>, <c>Tenant</c>, <c>Context</c> — without parsing text.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,6 +52,9 @@ internal static class CloudWatchEventFormatter
 
     /// <summary>The correlation id is cut to this many characters.</summary>
     public const int MaxCorrelationIdChars = 256;
+
+    /// <summary>The subject and the tenant are each cut to this many characters.</summary>
+    public const int MaxSubjectChars = 256;
 
     /// <summary>Each exception's message is cut to this many characters.</summary>
     public const int MaxExceptionMessageChars = 16_384;
@@ -138,6 +141,15 @@ internal static class CloudWatchEventFormatter
         return message;
     }
 
+    // Who the work was for and which tenant: present only when the unit of work set them.
+    private static void WriteWho(Utf8JsonWriter writer, CloudWatchEvent logEvent)
+    {
+        if (!string.IsNullOrWhiteSpace(logEvent.Subject))
+            writer.WriteString("Subject", Cut(logEvent.Subject, MaxSubjectChars));
+        if (!string.IsNullOrWhiteSpace(logEvent.Tenant))
+            writer.WriteString("Tenant", Cut(logEvent.Tenant, MaxSubjectChars));
+    }
+
     /// <summary>
     /// The event as its level, category and title, and the outermost exception's type and message, each cut
     /// short: what is written when the whole event cannot be made to fit, or could not be written at all.
@@ -152,6 +164,7 @@ internal static class CloudWatchEventFormatter
             writer.WriteString("Category", Cut(logEvent.Category, MaxCategoryChars));
             if (!string.IsNullOrWhiteSpace(logEvent.CorrelationId))
                 writer.WriteString("CorrelationId", Cut(logEvent.CorrelationId, MaxCorrelationIdChars));
+            WriteWho(writer, logEvent);
             writer.WriteString("Title", Cut(logEvent.Title, MinimalChars));
             writer.WriteBoolean("Truncated", value: true);
 
@@ -270,6 +283,7 @@ internal static class CloudWatchEventFormatter
             writer.WriteString("Category", Cut(logEvent.Category, MaxCategoryChars));
             if (!string.IsNullOrWhiteSpace(logEvent.CorrelationId))
                 writer.WriteString("CorrelationId", Cut(logEvent.CorrelationId, MaxCorrelationIdChars));
+            WriteWho(writer, logEvent);
             writer.WriteString("Title", Cut(logEvent.Title, MaxTitleChars));
 
             // A delta, present only on the method-tracing events that carry one.
