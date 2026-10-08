@@ -68,6 +68,8 @@ The shape follows what the event carries, never a guess at its text:
 - **`LogSql` / `LogXml` / `LogYaml` / `LogText`** give `Payload` as text, or an array of lines when there
   are several.
 - `CorrelationId` is the ambient correlation (`CorrelationManager`), left out when there is none.
+  `Subject` and `Tenant` are who the unit of work was for and its tenant (`CorrelationManager.SetSubject` /
+  `SetTenant`), each left out when not set.
   `Nesting` is the `EnterMethod` delta (`1` / `-1`), present only on method-tracing events.
 
 ```

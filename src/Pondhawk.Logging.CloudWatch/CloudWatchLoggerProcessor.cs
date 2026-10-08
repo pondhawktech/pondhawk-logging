@@ -242,6 +242,8 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             Category = info.Category.Name,
             Title = entry.ToString(),
             CorrelationId = CorrelationManager.Current,
+            Subject = CorrelationManager.Subject,
+            Tenant = CorrelationManager.Tenant,
             Occurred = info.Timestamp.Utc.UtcDateTime,
             Exception = info.Exception,
         };
