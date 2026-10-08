@@ -33,4 +33,16 @@ public static class LogPropertyNames
 
     /// <summary>The <see cref="System.Diagnostics.Activity"/> baggage key used to flow the correlation id.</summary>
     public const string CorrelationBaggageKey = "pondhawk.correlation";
+
+    /// <summary>
+    /// The <see cref="System.Diagnostics.Activity"/> custom-property key holding the subject — who the unit of work
+    /// is for. A custom property rather than baggage: it never leaves the process.
+    /// </summary>
+    public const string SubjectKey = "pondhawk.subject";
+
+    /// <summary>
+    /// The <see cref="System.Diagnostics.Activity"/> custom-property key holding the tenant the unit of work belongs
+    /// to. A custom property rather than baggage: it never leaves the process.
+    /// </summary>
+    public const string TenantKey = "pondhawk.tenant";
 }

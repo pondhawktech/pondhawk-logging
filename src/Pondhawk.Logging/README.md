@@ -29,6 +29,24 @@ Also included: `LogPropertyNames` (the public `Pondhawk.*` log-state property-na
 read), the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum, `CorrelationManager`,
 and public `TypeExtensions` (`GetConciseName` / `GetConciseFullName`).
 
+## Correlation, subject and tenant
+
+`CorrelationManager` holds the current unit of work: its correlation id, and who it is for and which tenant
+it belongs to. Sinks stamp all three on every event logged within it.
+
+```csharp
+using (CorrelationManager.Begin())            // background work: a fresh correlation id
+{
+    CorrelationManager.SetSubject(user.Name);  // or in middleware, from the signed-in user
+    CorrelationManager.SetTenant(user.Tenant);
+    ...
+}
+```
+
+The subject and tenant cover the current `Activity` and its children, and end with it. Unlike the
+correlation id they are not baggage, so they stay in the process: a user name is never sent to the services
+this one calls.
+
 ## Acquiring loggers
 
 Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type. Inject
