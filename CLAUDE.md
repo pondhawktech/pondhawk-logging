@@ -15,6 +15,7 @@ dotnet build pondhawk-logging.slnx
 dotnet build src/Pondhawk.Logging/Pondhawk.Logging.csproj
 dotnet build src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj
 dotnet build src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj
+dotnet build src/Pondhawk.Logging.AspNetCore/Pondhawk.Logging.AspNetCore.csproj
 
 # Run tests directly
 dotnet test pondhawk-logging.slnx
@@ -36,7 +37,7 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
 
 ## Architecture
 
-Four packages: the logging API, a Watch Server provider, a journald-optimized console, and a CloudWatch Logs provider — the Watch and CloudWatch providers build on the API. All are fully standalone — no dependency on other Pondhawk packages.
+Five packages: the logging API, a Watch Server provider, a journald-optimized console, a CloudWatch Logs provider, and ASP.NET Core request diagnostics — the Watch, CloudWatch and AspNetCore packages build on the API. None depends on a Pondhawk package beyond that API. `Pondhawk.Logging.AspNetCore` is the one package that needs the ASP.NET Core shared framework.
 
 ### Pondhawk.Logging — Structured Logging API
 
@@ -78,11 +79,24 @@ A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one 
 - **CloudWatchEventFormatter**: the event's JSON, shaped by what the event carries, never by guessing at text — an exception gives `Exceptions` (the whole chain, one frame per array entry) plus `Context` from `Pondhawk.ErrorContext`; a Json payload is nested JSON under `Payload`; anything else is text or an array of lines. `Context` is always an object (`{ "Value": … }` otherwise). Title, category, correlation id, exception messages and chain length are capped; an event still over 256 KB loses context, then payload lines, then stack frames, and failing that is written minimal with `Truncated: true`. `Format` never throws and its cut loop is bounded — it runs on the one flush thread.
 - **CloudWatchDestination**: the log group, as one immutable snapshot re-read per batch. **`Rebind(logGroup)`** moves the process to another group without tearing anything down; **`Unbound()`** starts with no group named. `Sanitize` makes a valid group name from arbitrary text.
 
+### Pondhawk.Logging.AspNetCore — ASP.NET Core request diagnostics (references Pondhawk.Logging)
+
+Three middlewares that log through `ILogger` under the one category `Pondhawk.Diagnostics.Http` (`DiagnosticsLog`, `[LoggerMessage]` source-generated). No ZLogger and no dependency on a sink; a `FrameworkReference` to `Microsoft.AspNetCore.App`. Ported from `Pondhawk.Api`'s Serilog middlewares in `tools`, without its `IRequestContext` and gateway token.
+
+- **DiagnosticsApplicationBuilderExtensions / DiagnosticsServiceCollectionExtensions**: `UseDiagnosticsMonitor`, `UseDiagnosticsEnrichment`, `UseRequestLogging`, and the optional **`AddPondhawkDiagnostics(configure?)`** that configures the one `DiagnosticsOptions` all three read (`IOptions<DiagnosticsOptions>`, so the defaults apply without it).
+- **DiagnosticsMonitorMiddleware**: registered early — the outer bracket. "Begin {Method} {Path}" and "End {Method} {Path} -> {Status} ({Elapsed}ms)" at Debug, the End in a `finally`; path only, never the query string. A request that throws past it is reported as a 500. The End line carries the exception — the one that reached it, or the one an exception handler inside the bracket left on `IExceptionHandlerFeature`. `EndLevelByOutcome` (off by default) logs End at Information, Warning for 401/403/429 and Error for 5xx.
+- **DiagnosticsEnrichmentMiddleware**: after authentication. Subject (`sub`, then name identifier, or a delegate) and tenant (a delegate) through `CorrelationManager`.
+- **RequestCorrelation**: settles the correlation id once per request, by whichever of the monitor and enrichment runs first — so a request refused before authentication has one. Inbound header when well formed (1–64 ASCII letters, digits, `-`, `_`, `.`), else the ambient baggage under the same check, else a fresh Ulid. The echo is written in `Response.OnStarting`, because an exception handler clears headers set earlier.
+- **RequestLoggingMiddleware / HttpDescriber**: registered deep. A no-op unless the category is Debug-enabled — nothing read, buffered or copied. Otherwise two events with JSON payloads (`LogJson`), JSON because Watch indents, colours and folds it. The request: `Method`, `Url` (raw, so encoding shows), `Query` (decoded; a repeated name is an array), `Endpoint` (name, route pattern, route values) and `User` (name, subject, scheme) — the reason it sits after routing and authentication — then `Headers` and `Body` (a JSON body nested as JSON, a form post as an object of fields, other text as a string). The response: `Status`, `Elapsed`, `Headers`, and `Body` only with `CaptureResponseBody`. What is said about a body goes beside it, never in it: `BodyOmitted` (with a `Reason`), `BodyCut`, `BodyError`. A request that throws gets no response event. The writer uses the relaxed JSON encoder so `&` and `+` stay readable.
+- **Masking is by name and the application's choice**: only `Authorization`, `Cookie` and `Set-Cookie` are masked by default, keeping what gives nothing away (the scheme, cookie names, a `Set-Cookie`'s attributes). `MaskedHeaders`, `MaskedQueryParameters` and `MaskedBodyFields` name the rest, a masked value becoming its length (`***(7)`). `MaskedBodyFields` covers form fields and JSON properties at any depth, request and response; XML and plain text are not searched. **A JSON body that does not parse — malformed, or cut at the cap — is left out while any body field is named**, because the fields could not be found in it; with none named it is written as the string that was read.
+- **Bodies**: a text request body (JSON, XML, `text/*`, form; not content-encoded) is read up to `MaxBodyBytes` (64 KB; one byte more to learn whether it was cut) and rewound; any other is described and not read. **ResponseCaptureStream** replaces `Response.Body` for the one request, passes every write straight through and copies the first `MaxBodyBytes`; it decides whether to keep anything at the first write, when the content type is known. Before the real body is put back, bytes left unflushed in the response's pipe are flushed — that pipe was made over the capturing stream, and the server only completes the one in place afterwards — but only when there are some, since a flush starts the response, and never on the exception path, where the handler decides what the response is.
+- `Skip` leaves a request out of the monitor and the dump, not out of correlation or enrichment.
+
 Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhawk.Logging.Watch/CLAUDE.md`.
 
 ## Conventions
 
-- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`, `Pondhawk.Logging.Console`, `Pondhawk.Logging.CloudWatch`.
+- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`, `Pondhawk.Logging.Console`, `Pondhawk.Logging.CloudWatch`, `Pondhawk.Logging.AspNetCore`.
 
 ## History
 

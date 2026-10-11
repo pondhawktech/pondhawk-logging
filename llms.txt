@@ -1,6 +1,6 @@
 # Pondhawk.Logging
 
-> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) a journald-optimized console, and an Amazon CloudWatch Logs provider. Four packages, all target net8.0, no dependency on other Pondhawk packages.
+> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) a journald-optimized console, an Amazon CloudWatch Logs provider, and ASP.NET Core request diagnostics. Five packages, all target net8.0, no dependency on any Pondhawk package beyond the logging API.
 
 ## Packages
 
@@ -72,13 +72,34 @@ builder.Logging.AddCloudWatch("/my-app/Production", "orders");   // Information 
 - `CloudWatchDestination` — the log group; `Rebind(logGroup)` at runtime, `Unbound()` when the group arrives later (Warning and above held until then), `Sanitize(text)`
 - `CloudWatchLoggerProcessor` — a ZLogger `IAsyncLogProcessor`: one Pascal-case JSON object per event (`Level`, `Category`, `CorrelationId`, `Title`, `Context`, `Exceptions`, `Payload`); creates its stream and a missing group on the first batch; access denied turns it off, any other failure pauses it for a minute while Warning and above is held
 
+### Pondhawk.Logging.AspNetCore — ASP.NET Core request diagnostics
+
+Install: `dotnet add package Pondhawk.Logging.AspNetCore`
+```csharp
+using Pondhawk.Logging.AspNetCore;
+
+builder.Services.AddPondhawkDiagnostics(options => options.MaskedBodyFields.Add("password"));   // optional
+
+app.UseDiagnosticsMonitor();      // early: Begin/End with status and elapsed time; settles the correlation id
+app.UseAuthentication();
+app.UseDiagnosticsEnrichment();   // after authentication: subject and tenant
+app.UseRequestLogging();          // deep: dumps the whole request when the category is Debug-enabled
+```
+**Key types (`Pondhawk.Logging.AspNetCore` namespace):**
+- `DiagnosticsApplicationBuilderExtensions` — `UseDiagnosticsMonitor`, `UseDiagnosticsEnrichment`, `UseRequestLogging` on `IApplicationBuilder`
+- `DiagnosticsServiceCollectionExtensions` — `AddPondhawkDiagnostics(this IServiceCollection, configure?)`
+- `DiagnosticsOptions` — `CorrelationHeader` (`X-Correlation-Id`), `EchoCorrelationId` (true), `Subject` (`sub` claim, then name identifier), `Tenant`, `Skip`, `MaskedHeaders` (`Authorization`, `Cookie`, `Set-Cookie`), `MaskedQueryParameters` (empty), `MaskedBodyFields` (empty; form fields and JSON properties at any depth), `CaptureBody` (true), `CaptureResponseBody` (false), `MaxBodyBytes` (65536), `EndLevelByOutcome` (false)
+- `DiagnosticsMonitorMiddleware`, `DiagnosticsEnrichmentMiddleware`, `RequestLoggingMiddleware`
+
+All events use the category `Pondhawk.Diagnostics.Http`, at Debug. The monitor's End line carries the exception when the request failed. The request dump is two events with JSON payloads: the request (`Method`, `Url`, `Query`, `Endpoint`, `User`, `Headers`, `Body`) and the response (`Status`, `Elapsed`, `Headers`, and `Body` only with `CaptureResponseBody`), with `BodyOmitted` / `BodyCut` / `BodyError` beside a body. It shows what was sent — a JSON body nested as JSON, a form post as an object of fields — except `Authorization`, `Cookie` and `Set-Cookie` values; other values are masked only when named in the options. A JSON body that cannot be parsed is left out while `MaskedBodyFields` names anything. An inbound correlation id must be 1–64 ASCII letters, digits, `-`, `_`, `.` or it is replaced. Requires the ASP.NET Core shared framework; depends on no sink.
+
 ## Docs
 - [README.md](README.md) — overview and examples
-- [src/Pondhawk.Logging/README.md](src/Pondhawk.Logging/README.md), [src/Pondhawk.Logging.Watch/README.md](src/Pondhawk.Logging.Watch/README.md), [src/Pondhawk.Logging.Console/README.md](src/Pondhawk.Logging.Console/README.md), [src/Pondhawk.Logging.CloudWatch/README.md](src/Pondhawk.Logging.CloudWatch/README.md) — NuGet package readmes
+- [src/Pondhawk.Logging/README.md](src/Pondhawk.Logging/README.md), [src/Pondhawk.Logging.Watch/README.md](src/Pondhawk.Logging.Watch/README.md), [src/Pondhawk.Logging.Console/README.md](src/Pondhawk.Logging.Console/README.md), [src/Pondhawk.Logging.CloudWatch/README.md](src/Pondhawk.Logging.CloudWatch/README.md), [src/Pondhawk.Logging.AspNetCore/README.md](src/Pondhawk.Logging.AspNetCore/README.md) — NuGet package readmes
 - [CLAUDE.md](CLAUDE.md) plus per-project `src/*/CLAUDE.md` — repository/build guidance
 
 ## Technical details
-- All four packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch, Console and CloudWatch providers use ZLogger)
+- All five packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch, Console and CloudWatch providers use ZLogger; `Pondhawk.Logging.AspNetCore` references the ASP.NET Core shared framework)
 - XML documentation ships inside the NuGet packages (100% public-API coverage; consumers get IntelliSense)
 - `Pondhawk.Logging.Watch` is consumed by the pondhawk/watch-server client
 - MIT licensed; extracted from the pondhawktech/tools monorepo

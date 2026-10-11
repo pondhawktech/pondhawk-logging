@@ -39,7 +39,8 @@ public class BuildContext : FrostingContext
         "src/Pondhawk.Logging/Pondhawk.Logging.csproj",
         "src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj",
         "src/Pondhawk.Logging.Console/Pondhawk.Logging.Console.csproj",
-        "src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj"
+        "src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj",
+        "src/Pondhawk.Logging.AspNetCore/Pondhawk.Logging.AspNetCore.csproj"
     ];
 
     public BuildContext(ICakeContext context) : base(context)
