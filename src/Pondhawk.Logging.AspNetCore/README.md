@@ -17,7 +17,7 @@ builder.Services.AddPondhawkDiagnostics(options =>
 {
     options.Tenant = http => http.Request.RouteValues["tenant"]?.ToString();
     options.Skip = http => http.Request.Path.StartsWithSegments("/health");
-    options.MaskedFormFields.Add("password");
+    options.MaskedBodyFields.Add("password");
 });
 
 app.UseDiagnosticsMonitor();      // early: every request, including those refused later
@@ -36,9 +36,9 @@ on its own — use one, two or all three.
 
 | Call | Where | What it does |
 |---|---|---|
-| `UseDiagnosticsMonitor` | Early — first, or right after forwarded headers | Settles the correlation id, then logs `Begin GET /orders/7` and `End GET /orders/7 -> 200 (12.4ms)` at Debug. |
+| `UseDiagnosticsMonitor` | Early — first, or right after forwarded headers | Settles the correlation id, then logs `Begin GET /orders/7` and `End GET /orders/7 -> 200 (12.4ms)` at Debug — with the exception, when the request failed. |
 | `UseDiagnosticsEnrichment` | After authentication | Sets the subject (from the principal) and the tenant (from your delegate) for everything logged within the request. |
-| `UseRequestLogging` | Deep — after routing and authentication | When the category is Debug-enabled, logs the whole request as a JSON payload, then `HTTP GET /orders/7 -> 200`. |
+| `UseRequestLogging` | Deep — after routing and authentication | When the category is Debug-enabled, logs the whole request as a JSON payload — with the endpoint and user it resolved to — then the response the same way. |
 
 **Why the monitor and the request logger are two things.** They differ by position, and neither position does
 both jobs. The monitor is the outer bracket: registered first, it times the whole pipeline and still closes a
@@ -46,7 +46,9 @@ request that authentication refuses or that throws — but that early there is n
 logger sits deep, where the request is fully resolved, and accepts that anything short-circuited before it
 never arrives. The monitor logs the path only, never the query string.
 
-A request that throws past the monitor is closed as a 500, since that is what the client is sent.
+A request that fails carries its exception on the End line, so the failure and its timing are one event. That
+holds whether the exception reached the monitor — it is then closed as a 500, since that is what the client is
+sent — or an exception handler inside the bracket caught it first and answered.
 
 ### Correlation id
 
@@ -70,59 +72,118 @@ without them.
 
 ## What the request dump shows
 
-**The whole request.** This is a diagnostics tool, and hidden data defeats it. The dump is gated twice — the
-application must call `UseRequestLogging`, and someone must switch `Pondhawk.Diagnostics.Http` to Debug — and
-when it is on it shows what was sent, as one JSON payload (`LogJson`):
-
-```json
-{
-  "Method": "POST",
-  "Url": "/orders?returnUrl=%2Fcart&tag=a&tag=b",
-  "Query": { "returnUrl": "/cart", "tag": ["a", "b"] },
-  "Headers": {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ***(11)",
-    "Cookie": "***(14)"
-  },
-  "Body": { "name": "widget", "lines": [ { "sku": "A1", "qty": 2 } ] }
-}
-```
+**The whole request, then the response.** This is a diagnostics tool, and hidden data defeats it. The dump is
+gated twice — the application must call `UseRequestLogging`, and someone must switch
+`Pondhawk.Diagnostics.Http` to Debug — and when it is on it logs two events, each with a JSON payload
+(`LogJson`).
 
 JSON rather than text because a viewer can do more with it: Watch indents it, colours it and folds it, so the
 headers collapse out of the way and a JSON body reads as JSON instead of one long line.
 
+### The request — `HTTP POST /orders/7/lines`
+
+```json
+{
+  "Method": "POST",
+  "Url": "/orders/7/lines?returnUrl=%2Fcart&tag=a&tag=b",
+  "Query": { "returnUrl": "/cart", "tag": ["a", "b"] },
+  "Endpoint": {
+    "Name": "HTTP: POST /orders/{id:int}/lines",
+    "Route": "/orders/{id:int}/lines",
+    "Values": { "id": "7" }
+  },
+  "User": { "Name": "pat", "Subject": "user-42", "Scheme": "Bearer" },
+  "Headers": {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer ***(11)",
+    "Cookie": "sid=***(32); theme=***(4)"
+  },
+  "Body": { "sku": "A1", "qty": 2 }
+}
+```
+
 - **`Url`** — the path and query string exactly as sent, so an encoding problem shows.
 - **`Query`** — the same query decoded, one property per parameter; a name sent more than once is an array.
   Left out when there is no query string.
-- **`Headers`** — in full, except `Authorization` (the scheme is kept) and `Cookie`, whose values are replaced
-  by their length. They are replayable credentials, and the scheme and length say most of what the value would.
+- **`Endpoint`** — where routing sent the request: the endpoint's name, its route pattern and the route
+  values. The pattern is the thing to group by; the path is not. Left out when no endpoint matched.
+- **`User`** — who authentication made of the caller: name, subject (from `options.Subject`) and
+  authentication scheme. Left out for an anonymous request.
+- **`Headers`** — in full, except the masked ones (below).
 - **`Body`** — what was sent, up to `MaxBodyBytes`: a JSON body as nested JSON, a form post as an object of its
-  decoded fields, any other text (XML, `text/*`) as a string. A body that claims to be JSON and does not parse
-  is written as the text it is. The body is buffered and rewound, so the endpoint reads it from the start.
+  decoded fields, any other text (XML, `text/*`) as a string. The body is buffered and rewound, so the endpoint
+  reads it from the start.
 
-What is said *about* a body goes beside it, never inside it:
+`Endpoint` and `User` are why this middleware is registered deep: before routing and authentication there is
+neither.
+
+### The response — `HTTP POST /orders/7/lines -> 201`
+
+```json
+{
+  "Status": 201,
+  "Elapsed": 12.4,
+  "Headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Location": "/orders/7/lines/3",
+    "Set-Cookie": "sid=***(32); Path=/; HttpOnly; SameSite=Lax"
+  },
+  "Body": { "id": 3, "sku": "A1", "qty": 2 }
+}
+```
+
+Status, elapsed time (from this middleware, in milliseconds) and headers are always there. **The body is not,
+unless you ask**: `options.CaptureResponseBody = true` puts a stream in front of the response that copies the
+first `MaxBodyBytes` of a text body as it is written. Everything still goes straight to the client — nothing is
+held back, so streaming behaves as it did — but it is one more thing in the response's path for every dumped
+request, which is why it is off by default.
+
+A request that throws has no response event; the exception is on the monitor's End line.
+
+### Beside the body
+
+What is said *about* a body, request or response, goes beside it, never inside it:
 
 | Property | When | Holds |
 |---|---|---|
-| `BodyOmitted` | The body is not text (multipart, binary), or `CaptureBody` is off. It is not read. | `ContentType`, `Length` |
-| `BodyCut` | The body ran past `MaxBodyBytes`. `Body` is then the text that was read, as a string. | `Written`, `Length` |
-| `BodyError` | The body could not be read. | The error message |
+| `BodyOmitted` | The body was not written. | `ContentType`, `Length`, and `Reason`: `not text` (multipart, binary), `content-encoded` (compressed), `capture is off`, or `not valid JSON, so the masked fields could not be found` |
+| `BodyCut` | The body ran past `MaxBodyBytes`. `Body` is then the text that was kept, as a string. | `Written`, `Length` |
+| `BodyError` | The request body could not be read. | The error message |
 
-**Masking is by name, and yours to choose.** Nothing above is hidden unless you name it:
+### Masking
+
+**By name, and yours to choose.** Three headers are masked by default; nothing else is hidden unless you name
+it:
 
 ```csharp
-options.MaskedFormFields.Add("password");        // fields of a form-urlencoded body
+options.MaskedBodyFields.Add("password");        // form fields and JSON properties, request and response
 options.MaskedQueryParameters.Add("code");       // query parameters
-options.MaskedHeaders.Add("X-Api-Key");          // headers — or .Clear() to show Authorization and Cookie
+options.MaskedHeaders.Add("X-Api-Key");          // headers — or .Clear() to show them all
 ```
 
-A masked value is replaced by its length as sent (`***(7)`), so an empty or truncated one still shows; a
-masked query parameter is masked in both `Url` and `Query`. Names match without regard to case. `MaskedFormFields` covers form posts only: **a secret inside a JSON body is written as
-sent**. If an application takes passwords or client secrets, name those fields — with the defaults, a sign-in
-form post is logged with its password whenever the category is at Debug.
+- **Headers** — `Authorization`, `Cookie` and `Set-Cookie` by default. They are replayable credentials, and
+  what says something without giving the secret away is kept: the authorization scheme, the cookie names, and
+  a `Set-Cookie`'s attributes (`Path`, `Expires`, `SameSite`). The set covers request and response headers.
+- **Query parameters** — masked in both `Url` and `Query`.
+- **Body fields** — a form post's fields, and a JSON body's properties **at any depth**, in the request and in
+  a captured response. A masked JSON string becomes its length; a masked number, object or array becomes
+  `***`.
 
-When the category is not Debug-enabled the request logger does nothing at all: the body is neither read nor
-buffered.
+A masked value is replaced by its length as sent (`***(7)`), so an empty or truncated one still shows. Names
+match without regard to case.
+
+Two limits worth knowing:
+
+- **A JSON body that cannot be parsed is left out** while `MaskedBodyFields` names anything — malformed, or
+  cut short by `MaxBodyBytes`. The fields could not be found in it, and the application asked for them not to
+  be logged. With nothing named, it is written as the text it is.
+- **XML and plain text are not searched.** A secret in one of those is written as sent.
+
+If an application takes passwords, client secrets or tokens, name those fields — with the defaults, a sign-in
+is logged with its password whenever the category is at Debug.
+
+When the category is not Debug-enabled the request logger does nothing at all: no body is read, buffered or
+copied.
 
 ## Options
 
@@ -133,11 +194,12 @@ buffered.
 | `Subject` | `sub`, then name identifier | `Func<HttpContext, string?>`. |
 | `Tenant` | none | `Func<HttpContext, string?>`. |
 | `Skip` | none | `Func<HttpContext, bool>`; true leaves a request out of the monitor and the dump. It still gets its correlation id, subject and tenant. |
-| `MaskedHeaders` | `Authorization`, `Cookie` | Headers masked in the dump. Add to it or clear it. |
+| `MaskedHeaders` | `Authorization`, `Cookie`, `Set-Cookie` | Request and response headers masked in the dump. Add to it or clear it. |
 | `MaskedQueryParameters` | empty | Query parameters masked in the dump. |
-| `MaskedFormFields` | empty | Form fields masked in the dump. |
-| `CaptureBody` | `true` | False describes every body without reading it. |
-| `MaxBodyBytes` | 65536 | How much of a body is written; at most 1 MB. |
+| `MaskedBodyFields` | empty | Form fields and JSON properties (any depth) masked in the dump, request and response. |
+| `CaptureBody` | `true` | False describes every request body without reading it. |
+| `CaptureResponseBody` | `false` | True keeps a copy of a text response body for the dump. |
+| `MaxBodyBytes` | 65536 | How much of a body, request or response, is written; at most 1 MB. |
 | `EndLevelByOutcome` | `false` | Log the monitor's End line at Information, Warning for 401/403/429 and Error for 5xx, instead of Debug. |
 
 ## The category

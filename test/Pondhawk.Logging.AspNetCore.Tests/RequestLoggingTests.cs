@@ -1,10 +1,13 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Pondhawk.Logging.AspNetCore.Tests.Support;
 using Shouldly;
@@ -49,6 +52,19 @@ public class RequestLoggingTests
         using var document = JsonDocument.Parse(app.Log.Diagnostics[0].Payload);
         return document.RootElement.Clone();
     }
+
+    // The second event: the response, described the same way.
+    private static JsonElement Response(DiagnosticsApp app)
+    {
+        using var document = JsonDocument.Parse(app.Log.Diagnostics[1].Payload);
+        return document.RootElement.Clone();
+    }
+
+    private static Action<IApplicationBuilder> Answering(RequestDelegate endpoint) => app =>
+    {
+        app.UseRequestLogging();
+        app.Run(endpoint);
+    };
 
     private static string Text(JsonElement element, params string[] path)
     {
@@ -165,8 +181,8 @@ public class RequestLoggingTests
         var seen = new Seen();
         await using var app = await DiagnosticsApp.StartAsync(Dumping(seen), options =>
         {
-            options.MaskedFormFields.Add("password");
-            options.MaskedFormFields.Add("client_secret");
+            options.MaskedBodyFields.Add("password");
+            options.MaskedBodyFields.Add("client_secret");
         });
 
         await app.Client.PostAsync("/signin", Content("username=pat&Password=hunter2&client_secret=abc%20def&remember=on", Form));
@@ -217,7 +233,7 @@ public class RequestLoggingTests
 
         var headers = Dump(app).GetProperty("Headers");
         Text(headers, "Authorization").ShouldBe("Bearer ***(11)");
-        Text(headers, "Cookie").ShouldBe("***(14)");
+        Text(headers, "Cookie").ShouldBe("sid=***(10)");
         Text(headers, "x-api-key").ShouldBe("***(9)");
         Text(headers, "X-Normal").ShouldBe("visible");
 
@@ -257,6 +273,7 @@ public class RequestLoggingTests
         var dump = Dump(app);
         dump.TryGetProperty("Body", out _).ShouldBeFalse();
         Text(dump, "BodyOmitted", "ContentType").ShouldBe("image/png");
+        Text(dump, "BodyOmitted", "Reason").ShouldBe("not text");
         dump.GetProperty("BodyOmitted").GetProperty("Length").GetInt64().ShouldBe(5);
         seen.Buffered.ShouldBeFalse();
     }
@@ -274,6 +291,7 @@ public class RequestLoggingTests
         var dump = Dump(app);
         dump.TryGetProperty("Body", out _).ShouldBeFalse();
         Text(dump, "BodyOmitted", "ContentType").ShouldBe(Form);
+        Text(dump, "BodyOmitted", "Reason").ShouldBe("capture is off");
         dump.GetProperty("BodyOmitted").GetProperty("Length").GetInt64().ShouldBe(29);
         seen.Buffered.ShouldBeFalse();
         seen.Body.ShouldBe("username=pat&password=hunter2");
@@ -335,5 +353,287 @@ public class RequestLoggingTests
         var dump = Dump(app);
         dump.EnumerateObject().Select(p => p.Name).ShouldBe(["Method", "Url", "Headers"]);
         Text(dump, "Url").ShouldBe("/orders");
+    }
+
+    [Fact]
+    public async Task A_compressed_body_is_described_and_not_read()
+    {
+        var seen = new Seen();
+        await using var app = await DiagnosticsApp.StartAsync(Dumping(seen));
+
+        using var content = new ByteArrayContent([0x1F, 0x8B, 0x08, 0x00]);
+        content.Headers.ContentType = new MediaTypeHeaderValue(Json);
+        content.Headers.ContentEncoding.Add("gzip");
+
+        await app.Client.PostAsync("/orders", content);
+
+        Text(Dump(app), "BodyOmitted", "Reason").ShouldBe("content-encoded");
+        seen.Buffered.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_masked_field_in_a_json_body_never_appears_at_any_depth()
+    {
+        var seen = new Seen();
+        await using var app = await DiagnosticsApp.StartAsync(Dumping(seen), options =>
+        {
+            options.MaskedBodyFields.Add("password");
+            options.MaskedBodyFields.Add("pin");
+            options.MaskedBodyFields.Add("card");
+        });
+
+        var body = """{"user":"pat","Password":"hunter2","pin":4321,"card":{"number":"4111-secret"},"contacts":[{"name":"sam","password":"s3cr3t!"}],"note":"password"}""";
+        await app.Client.PostAsync("/signin", Content(body, Json));
+
+        var everything = app.Log.Everything;
+        everything.ShouldNotContain("hunter2");
+        everything.ShouldNotContain("4321");
+        everything.ShouldNotContain("4111-secret");
+        everything.ShouldNotContain("s3cr3t!");
+
+        var logged = Dump(app).GetProperty("Body");
+        Text(logged, "user").ShouldBe("pat");
+        Text(logged, "Password").ShouldBe("***(7)");
+        Text(logged, "pin").ShouldBe("***");
+        Text(logged, "card").ShouldBe("***");
+        Text(logged.GetProperty("contacts")[0], "name").ShouldBe("sam");
+        Text(logged.GetProperty("contacts")[0], "password").ShouldBe("***(7)");
+
+        // Masked by property name, not by what a value says.
+        Text(logged, "note").ShouldBe("password");
+
+        seen.Body.ShouldBe(body);
+    }
+
+    [Theory]
+    [InlineData("""{"password":"hunter2", oops""", 65536)]   // malformed
+    [InlineData("""{"user":"pat","password":"hunter2"}""", 30)]   // cut short of its end
+    public async Task A_json_body_that_cannot_be_parsed_is_left_out_when_there_are_fields_to_mask(string body, int cap)
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Dumping(new Seen()), options =>
+        {
+            options.MaskedBodyFields.Add("password");
+            options.MaxBodyBytes = cap;
+        });
+
+        await app.Client.PostAsync("/signin", Content(body, Json));
+
+        app.Log.Everything.ShouldNotContain("hunter2");
+
+        var dump = Dump(app);
+        dump.TryGetProperty("Body", out _).ShouldBeFalse();
+        Text(dump, "BodyOmitted", "Reason").ShouldBe("not valid JSON, so the masked fields could not be found");
+    }
+
+    [Fact]
+    public async Task The_endpoint_and_the_user_the_request_resolved_to_are_written()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(app =>
+        {
+            app.UseRouting();
+            app.Use((HttpContext context, RequestDelegate next) =>
+            {
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(ClaimTypes.Name, "pat"), new Claim("sub", "user-42")], "Bearer"));
+                return next(context);
+            });
+            app.UseRequestLogging();
+            app.UseEndpoints(endpoints => endpoints.MapGet("/orders/{id:int}/lines/{line}", () => "ok").WithDisplayName("Get order line"));
+        });
+
+        await app.Client.GetAsync("/orders/7/lines/a1");
+
+        var dump = Dump(app);
+        dump.EnumerateObject().Select(p => p.Name).ShouldBe(["Method", "Url", "Endpoint", "User", "Headers"]);
+
+        Text(dump, "Endpoint", "Name").ShouldBe("Get order line");
+        Text(dump, "Endpoint", "Route").ShouldBe("/orders/{id:int}/lines/{line}");
+        Text(dump, "Endpoint", "Values", "id").ShouldBe("7");
+        Text(dump, "Endpoint", "Values", "line").ShouldBe("a1");
+
+        Text(dump, "User", "Name").ShouldBe("pat");
+        Text(dump, "User", "Subject").ShouldBe("user-42");
+        Text(dump, "User", "Scheme").ShouldBe("Bearer");
+    }
+
+    [Fact]
+    public async Task An_anonymous_request_to_no_endpoint_has_neither_endpoint_nor_user()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Dumping(new Seen()));
+
+        await app.Client.GetAsync("/orders");
+
+        Dump(app).TryGetProperty("Endpoint", out _).ShouldBeFalse();
+        Dump(app).TryGetProperty("User", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_response_is_described_with_its_status_elapsed_time_and_headers()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Answering(context =>
+        {
+            context.Response.StatusCode = 302;
+            context.Response.Headers.Location = "/signin?returnUrl=%2Forders";
+            context.Response.Headers.Append("Set-Cookie", "sid=0123456789abcdef; Path=/; HttpOnly; SameSite=Lax");
+            context.Response.Headers.Append("Set-Cookie", "theme=dark; Path=/");
+            return Task.CompletedTask;
+        }));
+
+        await app.Client.GetAsync("/orders");
+
+        app.Log.Diagnostics[1].Message.ShouldBe("HTTP GET /orders -> 302");
+
+        var response = Response(app);
+        response.EnumerateObject().Select(p => p.Name).ShouldBe(["Status", "Elapsed", "Headers"]);
+        response.GetProperty("Status").GetInt32().ShouldBe(302);
+        response.GetProperty("Elapsed").GetDouble().ShouldBeGreaterThanOrEqualTo(0);
+        Text(response, "Headers", "Location").ShouldBe("/signin?returnUrl=%2Forders");
+
+        // A cookie's name and attributes are worth reading; its value is the credential.
+        response.GetProperty("Headers").GetProperty("Set-Cookie").EnumerateArray().Select(v => v.GetString())
+            .ShouldBe(["sid=***(16); Path=/; HttpOnly; SameSite=Lax", "theme=***(4); Path=/"]);
+        app.Log.Everything.ShouldNotContain("0123456789abcdef");
+    }
+
+    [Fact]
+    public async Task The_response_body_is_not_kept_unless_asked_for()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Answering(context => context.Response.WriteAsJsonAsync(new { token = "tok-123" })));
+
+        var sent = await app.Client.GetStringAsync("/token");
+
+        sent.ShouldBe("""{"token":"tok-123"}""");
+        Response(app).TryGetProperty("Body", out _).ShouldBeFalse();
+        app.Log.Everything.ShouldNotContain("tok-123");
+    }
+
+    [Fact]
+    public async Task A_captured_json_response_body_is_nested_and_masked_and_reaches_the_client_whole()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(
+            Answering(context => context.Response.WriteAsJsonAsync(new { access_token = "tok-123", expires_in = 3600, user = new { name = "pat" } })),
+            options =>
+            {
+                options.CaptureResponseBody = true;
+                options.MaskedBodyFields.Add("access_token");
+            });
+
+        var sent = await app.Client.GetStringAsync("/token");
+
+        sent.ShouldBe("""{"access_token":"tok-123","expires_in":3600,"user":{"name":"pat"}}""");
+
+        var body = Response(app).GetProperty("Body");
+        Text(body, "access_token").ShouldBe("***(7)");
+        body.GetProperty("expires_in").GetInt32().ShouldBe(3600);
+        Text(body, "user", "name").ShouldBe("pat");
+        app.Log.Everything.ShouldNotContain("tok-123");
+    }
+
+    [Fact]
+    public async Task A_response_left_unflushed_in_the_pipe_still_reaches_the_client_and_the_log()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(
+            Answering(context =>
+            {
+                context.Response.ContentType = "text/plain";
+
+                // Written into the response's pipe and never flushed: the pipe was made over the capturing stream.
+                var text = "left in the pipe"u8;
+                text.CopyTo(context.Response.BodyWriter.GetSpan(text.Length));
+                context.Response.BodyWriter.Advance(text.Length);
+
+                return Task.CompletedTask;
+            }),
+            options => options.CaptureResponseBody = true);
+
+        var sent = await app.Client.GetStringAsync("/note");
+
+        sent.ShouldBe("left in the pipe");
+        Text(Response(app), "Body").ShouldBe("left in the pipe");
+    }
+
+    [Fact]
+    public async Task A_captured_response_body_over_the_cap_is_cut_and_the_client_still_gets_all_of_it()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(
+            Answering(async context =>
+            {
+                context.Response.ContentType = "text/plain";
+                await context.Response.WriteAsync("0123456789");
+                await context.Response.WriteAsync("ABCDEFGHIJ");
+            }),
+            options =>
+            {
+                options.CaptureResponseBody = true;
+                options.MaxBodyBytes = 12;
+            });
+
+        var sent = await app.Client.GetStringAsync("/note");
+
+        sent.ShouldBe("0123456789ABCDEFGHIJ");
+
+        var response = Response(app);
+        Text(response, "Body").ShouldBe("0123456789AB");
+        response.GetProperty("BodyCut").GetProperty("Written").GetInt32().ShouldBe(12);
+        response.GetProperty("BodyCut").GetProperty("Length").GetInt64().ShouldBe(20);
+    }
+
+    [Fact]
+    public async Task A_captured_response_body_that_is_not_text_is_described()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(
+            Answering(async context =>
+            {
+                context.Response.ContentType = "image/png";
+                await context.Response.Body.WriteAsync(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x00 });
+            }),
+            options => options.CaptureResponseBody = true);
+
+        var sent = await app.Client.GetByteArrayAsync("/logo");
+
+        sent.Length.ShouldBe(5);
+
+        var response = Response(app);
+        response.TryGetProperty("Body", out _).ShouldBeFalse();
+        Text(response, "BodyOmitted", "ContentType").ShouldBe("image/png");
+        Text(response, "BodyOmitted", "Reason").ShouldBe("not text");
+        response.GetProperty("BodyOmitted").GetProperty("Length").GetInt64().ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task With_response_capture_on_a_failing_request_is_still_the_exception_handlers_to_answer()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(
+            app =>
+            {
+                app.UseExceptionHandler(new ExceptionHandlerOptions
+                {
+                    ExceptionHandler = context =>
+                    {
+                        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                        return context.Response.WriteAsync("handled");
+                    },
+                });
+                app.UseRequestLogging();
+                app.Run(context =>
+                {
+                    context.Response.ContentType = "text/plain";
+
+                    var text = "half an answer"u8;
+                    text.CopyTo(context.Response.BodyWriter.GetSpan(text.Length));
+                    context.Response.BodyWriter.Advance(text.Length);
+
+                    throw new InvalidOperationException("boom");
+                });
+            },
+            options => options.CaptureResponseBody = true);
+
+        var response = await app.Client.GetAsync("/broken");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        (await response.Content.ReadAsStringAsync()).ShouldBe("handled");
+
+        // The request was dumped; the response that never was is not.
+        app.Log.Diagnostics.Count(e => e.Message.StartsWith("HTTP GET /broken", StringComparison.Ordinal)).ShouldBe(1);
     }
 }

@@ -18,8 +18,5 @@ internal static partial class DiagnosticsLog
     public static partial void Begin(ILogger logger, string method, string? path);
 
     [LoggerMessage(EventId = 2, Message = "End {Method} {Path} -> {Status} ({Elapsed:F1}ms)")]
-    public static partial void End(ILogger logger, LogLevel level, string method, string? path, int status, double elapsed);
-
-    [LoggerMessage(EventId = 3, Level = LogLevel.Debug, Message = "HTTP {Method} {Path} -> {Status}")]
-    public static partial void Responded(ILogger logger, string method, string? path, int status);
+    public static partial void End(ILogger logger, LogLevel level, Exception? exception, string method, string? path, int status, double elapsed);
 }

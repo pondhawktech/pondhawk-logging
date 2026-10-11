@@ -7,7 +7,7 @@ using Xunit;
 namespace Pondhawk.Logging.AspNetCore.Tests;
 
 /// <summary>Tests the pieces of the request dump on their own: masking, and which bodies count as text.</summary>
-public class RequestDescriberTests
+public class HttpDescriberTests
 {
     private static HashSet<string> Names(params string[] names) => new(names, StringComparer.OrdinalIgnoreCase);
 
@@ -22,24 +22,29 @@ public class RequestDescriberTests
     [InlineData("a=1&&b=2", "a=1&&b=***(1)")]
     [InlineData("", "")]
     public void MaskPairs_masks_only_the_named_values(string pairs, string expected) =>
-        RequestDescriber.MaskPairs(pairs, Names("b")).ShouldBe(expected);
+        HttpDescriber.MaskPairs(pairs, Names("b")).ShouldBe(expected);
 
     [Fact]
     public void MaskPairs_matches_a_name_sent_with_a_plus_for_a_space() =>
-        RequestDescriber.MaskPairs("pass+word=x", Names("pass word")).ShouldBe("pass+word=***(1)");
+        HttpDescriber.MaskPairs("pass+word=x", Names("pass word")).ShouldBe("pass+word=***(1)");
 
     [Fact]
     public void MaskPairs_with_nothing_named_returns_the_text_as_sent() =>
-        RequestDescriber.MaskPairs("a=1&b=2", Names()).ShouldBe("a=1&b=2");
+        HttpDescriber.MaskPairs("a=1&b=2", Names()).ShouldBe("a=1&b=2");
 
     [Theory]
     [InlineData("Authorization", "Bearer abc", "Bearer ***(3)")]
     [InlineData("authorization", "abc", "***(3)")]
     [InlineData("Proxy-Authorization", "Basic dXNlcg==", "Basic ***(8)")]
-    [InlineData("Cookie", "a=1; b=2", "***(8)")]
+    [InlineData("Cookie", "a=1; b=22", "a=***(1); b=***(2)")]
+    [InlineData("cookie", "a=x=y", "a=***(3)")]
+    [InlineData("Cookie", "bare", "***(4)")]
+    [InlineData("Set-Cookie", "sid=abc; Path=/; Secure", "sid=***(3); Path=/; Secure")]
+    [InlineData("Set-Cookie", "sid=", "sid=***(0)")]
+    [InlineData("X-Api-Key", "key-1", "***(5)")]
     [InlineData("X-Normal", "visible", "visible")]
-    public void Header_masks_a_named_header_and_keeps_an_authorization_scheme(string name, string value, string expected) =>
-        RequestDescriber.Header(name, value, Names("Authorization", "Proxy-Authorization", "Cookie")).ShouldBe(expected);
+    public void Header_masks_a_named_header_and_keeps_what_gives_nothing_away(string name, string value, string expected) =>
+        HttpDescriber.Header(name, value, Names("Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key")).ShouldBe(expected);
 
     [Theory]
     [InlineData("application/json", true)]
@@ -57,7 +62,7 @@ public class RequestDescriberTests
     [InlineData("", false)]
     [InlineData(null, false)]
     public void IsText_is_true_for_json_xml_text_and_form_bodies_only(string contentType, bool expected) =>
-        RequestDescriber.IsText(contentType).ShouldBe(expected);
+        HttpDescriber.IsText(contentType).ShouldBe(expected);
 
     [Theory]
     [InlineData("01JABCDEF0123456789", true)]

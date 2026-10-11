@@ -14,7 +14,7 @@ namespace Pondhawk.Logging.AspNetCore;
 /// The request dump shows the whole request by default — it is a diagnostics tool, and it only runs when an
 /// application has added it and someone has switched its category to Debug. Masking is by name and the
 /// application's choice: <see cref="MaskedHeaders"/>, <see cref="MaskedQueryParameters"/> and
-/// <see cref="MaskedFormFields"/>.
+/// <see cref="MaskedBodyFields"/>.
 /// </remarks>
 public sealed class DiagnosticsOptions
 {
@@ -52,28 +52,38 @@ public sealed class DiagnosticsOptions
     public Func<HttpContext, bool>? Skip { get; set; }
 
     /// <summary>
-    /// Headers whose values the request dump replaces by their length. <c>Authorization</c> and <c>Cookie</c> by
-    /// default; add to it or clear it. Names are matched without regard to case.
+    /// Request and response headers whose values the request dump replaces by their length. <c>Authorization</c>,
+    /// <c>Cookie</c> and <c>Set-Cookie</c> by default — the scheme, the cookie names and a cookie's attributes are
+    /// kept. Add to it or clear it. Names are matched without regard to case.
     /// </summary>
-    public ISet<string> MaskedHeaders { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Authorization", "Cookie" };
+    public ISet<string> MaskedHeaders { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Authorization", "Cookie", "Set-Cookie" };
 
     /// <summary>Query parameters whose values the request dump replaces by their length. Empty by default.</summary>
     public ISet<string> MaskedQueryParameters { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Fields of an <c>application/x-www-form-urlencoded</c> body whose values the request dump replaces by their
-    /// length — <c>password</c>, <c>client_secret</c>. Empty by default. It does not reach into JSON bodies.
+    /// Fields whose values the request dump replaces by their length — <c>password</c>, <c>client_secret</c>,
+    /// <c>access_token</c> — in a form post and in a JSON body, request or response, at any depth. Empty by
+    /// default. A JSON body that cannot be parsed is left out altogether while this names anything, since the
+    /// fields could not be found in it. Other text (XML, <c>text/*</c>) is not searched.
     /// </summary>
-    public ISet<string> MaskedFormFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    public ISet<string> MaskedBodyFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Whether the request dump reads and writes a text body. False describes every body by content type and
-    /// length without reading it.
+    /// Whether the request dump reads and writes a text request body. False describes every body by content type
+    /// and length without reading it.
     /// </summary>
     public bool CaptureBody { get; set; } = true;
 
     /// <summary>
-    /// The most of a body the request dump writes; the rest is noted as cut. Zero or less describes the body
+    /// Whether the request dump keeps a copy of a text response body as it is written. Off by default: it puts a
+    /// stream of its own in front of the response for every dumped request. The response's status and headers
+    /// are logged either way.
+    /// </summary>
+    public bool CaptureResponseBody { get; set; }
+
+    /// <summary>
+    /// The most of a body, request or response, the request dump writes; the rest is noted as cut. Zero or less describes the body
     /// without reading it, and anything over <see cref="LargestMaxBodyBytes"/> is treated as that.
     /// </summary>
     public int MaxBodyBytes { get; set; } = DefaultMaxBodyBytes;

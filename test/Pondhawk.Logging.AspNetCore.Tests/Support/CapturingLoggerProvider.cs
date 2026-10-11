@@ -47,6 +47,7 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
         LogLevel Level,
         string Message,
         string Payload,
+        Exception Exception,
         string CorrelationId,
         string Subject,
         string Tenant);
@@ -76,7 +77,7 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
                 payload = properties.FirstOrDefault(p => p.Key == LogPropertyNames.PayloadContent).Value as string;
 
             provider._entries.Enqueue(new Entry(
-                category, logLevel, formatter(state, exception), payload,
+                category, logLevel, formatter(state, exception), payload, exception,
                 CorrelationManager.Current, CorrelationManager.Subject, CorrelationManager.Tenant));
         }
     }

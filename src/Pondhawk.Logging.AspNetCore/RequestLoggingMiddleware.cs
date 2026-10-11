@@ -1,6 +1,7 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,7 +10,8 @@ namespace Pondhawk.Logging.AspNetCore;
 
 /// <summary>
 /// When the <c>Pondhawk.Diagnostics.Http</c> category is Debug-enabled, logs the whole inbound request — method,
-/// URL, query, headers and a buffered, rewound body — as a JSON payload, then the response status. A no-op
+/// URL, query, the endpoint and user it resolved to, headers and a buffered, rewound body — as a JSON payload,
+/// then the response the same way: status, elapsed time, headers and, when asked for, the body. A no-op
 /// otherwise: nothing is read and nothing is buffered.
 /// </summary>
 /// <remarks>
@@ -54,13 +56,40 @@ public sealed class RequestLoggingMiddleware
 
         var method = context.Request.Method;
         var path = context.Request.Path.Value;
+        var started = Stopwatch.GetTimestamp();
 
-        var request = await RequestDescriber.DescribeAsync(context.Request, _options, context.RequestAborted).ConfigureAwait(false);
+        var request = await HttpDescriber.DescribeRequestAsync(context.Request, _options, context.RequestAborted).ConfigureAwait(false);
 
         _logger.LogJson(LogLevel.Debug, $"HTTP {method} {path}", request);
 
-        await _next(context).ConfigureAwait(false);
+        var capture = _options.CaptureResponseBody && HttpDescriber.Cap(_options) > 0
+            ? new ResponseCaptureStream(context.Response, HttpDescriber.Cap(_options))
+            : null;
 
-        DiagnosticsLog.Responded(_logger, method, path, context.Response.StatusCode);
+        try
+        {
+            try
+            {
+                await _next(context).ConfigureAwait(false);
+            }
+            catch when (capture is not null)
+            {
+                // Whoever handles this decides what the response is; nothing half-written is pushed out first.
+                await capture.RestoreAsync(flush: false, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
+
+            if (capture is not null)
+                await capture.RestoreAsync(flush: true, context.RequestAborted).ConfigureAwait(false);
+
+            var response = HttpDescriber.DescribeResponse(context.Response, _options, capture, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+
+            _logger.LogJson(LogLevel.Debug, $"HTTP {method} {path} -> {context.Response.StatusCode}", response);
+        }
+        finally
+        {
+            if (capture is not null)
+                await capture.DisposeAsync().ConfigureAwait(false);
+        }
     }
 }

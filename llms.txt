@@ -78,7 +78,7 @@ Install: `dotnet add package Pondhawk.Logging.AspNetCore`
 ```csharp
 using Pondhawk.Logging.AspNetCore;
 
-builder.Services.AddPondhawkDiagnostics(options => options.MaskedFormFields.Add("password"));   // optional
+builder.Services.AddPondhawkDiagnostics(options => options.MaskedBodyFields.Add("password"));   // optional
 
 app.UseDiagnosticsMonitor();      // early: Begin/End with status and elapsed time; settles the correlation id
 app.UseAuthentication();
@@ -88,10 +88,10 @@ app.UseRequestLogging();          // deep: dumps the whole request when the cate
 **Key types (`Pondhawk.Logging.AspNetCore` namespace):**
 - `DiagnosticsApplicationBuilderExtensions` — `UseDiagnosticsMonitor`, `UseDiagnosticsEnrichment`, `UseRequestLogging` on `IApplicationBuilder`
 - `DiagnosticsServiceCollectionExtensions` — `AddPondhawkDiagnostics(this IServiceCollection, configure?)`
-- `DiagnosticsOptions` — `CorrelationHeader` (`X-Correlation-Id`), `EchoCorrelationId` (true), `Subject` (`sub` claim, then name identifier), `Tenant`, `Skip`, `MaskedHeaders` (`Authorization`, `Cookie`), `MaskedQueryParameters` (empty), `MaskedFormFields` (empty), `CaptureBody` (true), `MaxBodyBytes` (65536), `EndLevelByOutcome` (false)
+- `DiagnosticsOptions` — `CorrelationHeader` (`X-Correlation-Id`), `EchoCorrelationId` (true), `Subject` (`sub` claim, then name identifier), `Tenant`, `Skip`, `MaskedHeaders` (`Authorization`, `Cookie`, `Set-Cookie`), `MaskedQueryParameters` (empty), `MaskedBodyFields` (empty; form fields and JSON properties at any depth), `CaptureBody` (true), `CaptureResponseBody` (false), `MaxBodyBytes` (65536), `EndLevelByOutcome` (false)
 - `DiagnosticsMonitorMiddleware`, `DiagnosticsEnrichmentMiddleware`, `RequestLoggingMiddleware`
 
-All events use the category `Pondhawk.Diagnostics.Http`, at Debug. The request dump is a JSON payload (`Method`, `Url`, `Query`, `Headers`, `Body`, plus `BodyOmitted` / `BodyCut` / `BodyError` beside the body) showing the request as sent — a JSON body nested as JSON, a form post as an object of fields — except `Authorization` and `Cookie`; other values are masked only when named in the options, and JSON bodies are never masked. An inbound correlation id must be 1–64 ASCII letters, digits, `-`, `_`, `.` or it is replaced. Requires the ASP.NET Core shared framework; depends on no sink.
+All events use the category `Pondhawk.Diagnostics.Http`, at Debug. The monitor's End line carries the exception when the request failed. The request dump is two events with JSON payloads: the request (`Method`, `Url`, `Query`, `Endpoint`, `User`, `Headers`, `Body`) and the response (`Status`, `Elapsed`, `Headers`, and `Body` only with `CaptureResponseBody`), with `BodyOmitted` / `BodyCut` / `BodyError` beside a body. It shows what was sent — a JSON body nested as JSON, a form post as an object of fields — except `Authorization`, `Cookie` and `Set-Cookie` values; other values are masked only when named in the options. A JSON body that cannot be parsed is left out while `MaskedBodyFields` names anything. An inbound correlation id must be 1–64 ASCII letters, digits, `-`, `_`, `.` or it is replaced. Requires the ASP.NET Core shared framework; depends on no sink.
 
 ## Docs
 - [README.md](README.md) — overview and examples

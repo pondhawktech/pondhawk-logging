@@ -88,7 +88,45 @@ public class DiagnosticsMonitorTests
 
         await Should.ThrowAsync<InvalidOperationException>(() => app.Client.GetAsync("/broken"));
 
-        app.Log.Diagnostics[^1].Message.ShouldStartWith("End GET /broken -> 500 ");
+        var end = app.Log.Diagnostics[^1];
+        end.Message.ShouldStartWith("End GET /broken -> 500 ");
+        end.Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("boom");
+    }
+
+    [Fact]
+    public async Task An_exception_caught_by_a_handler_inside_the_bracket_is_still_on_the_end_line()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(app =>
+        {
+            app.UseDiagnosticsMonitor();
+            app.UseExceptionHandler(new ExceptionHandlerOptions
+            {
+                ExceptionHandler = context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    return Task.CompletedTask;
+                },
+            });
+            app.Run(_ => throw new InvalidOperationException("boom"));
+        });
+
+        var response = await app.Client.GetAsync("/broken");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+
+        var end = app.Log.Diagnostics[^1];
+        end.Message.ShouldStartWith("End GET /broken -> 500 ");
+        end.Exception.ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("boom");
+    }
+
+    [Fact]
+    public async Task A_request_that_does_not_fail_has_no_exception_on_its_end_line()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Responding(404));
+
+        await app.Client.GetAsync("/missing");
+
+        app.Log.Diagnostics[^1].Exception.ShouldBeNull();
     }
 
     [Fact]

@@ -37,7 +37,7 @@ internal sealed class DiagnosticsApp : IAsyncDisposable
             .ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Trace).AddProvider(log))
             .ConfigureWebHost(web => web
                 .UseTestServer()
-                .ConfigureServices(services => services.AddPondhawkDiagnostics(configure))
+                .ConfigureServices(services => services.AddRouting().AddPondhawkDiagnostics(configure))
                 .Configure(pipeline))
             .StartAsync();
 

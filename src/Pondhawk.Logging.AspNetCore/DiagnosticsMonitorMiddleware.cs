@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,7 +15,8 @@ namespace Pondhawk.Logging.AspNetCore;
 /// </summary>
 /// <remarks>
 /// Register this <em>early</em>: it is the outer bracket, so it times the whole pipeline and still closes a
-/// request that later middleware short-circuits (a 401 from authentication) or that throws. It logs the path
+/// request that later middleware short-circuits (a 401 from authentication) or that throws — with the exception
+/// on the End line, whether it came this far or an exception handler caught it first. It logs the path
 /// only, never the query string. <see cref="RequestLoggingMiddleware"/> is registered deep for the detail of
 /// the request, at the cost of missing what was refused earlier — the two are complementary by position.
 /// </remarks>
@@ -57,7 +59,7 @@ public sealed class DiagnosticsMonitorMiddleware
         var method = context.Request.Method;
         var path = context.Request.Path.Value;
         var started = Stopwatch.GetTimestamp();
-        var threw = false;
+        Exception? thrown = null;
 
         DiagnosticsLog.Begin(_logger, method, path);
 
@@ -65,20 +67,24 @@ public sealed class DiagnosticsMonitorMiddleware
         {
             await _next(context).ConfigureAwait(false);
         }
-        catch
+        catch (Exception e)
         {
-            threw = true;
+            thrown = e;
             throw;
         }
         finally
         {
             // An exception that got this far leaves the status untouched; what the client is sent is a 500.
-            var status = threw && !context.Response.HasStarted ? StatusCodes.Status500InternalServerError : context.Response.StatusCode;
+            var status = thrown is not null && !context.Response.HasStarted ? StatusCodes.Status500InternalServerError : context.Response.StatusCode;
+
+            // The failure rides on the line that closes the request. Usually an exception handler inside this
+            // bracket has already caught it and answered, and left it on the context.
+            var exception = thrown ?? context.Features.Get<IExceptionHandlerFeature>()?.Error;
 
             var level = EndLevel(status);
             var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
-            DiagnosticsLog.End(_logger, level, method, path, status, elapsed);
+            DiagnosticsLog.End(_logger, level, exception, method, path, status, elapsed);
         }
     }
 

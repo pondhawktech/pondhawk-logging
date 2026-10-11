@@ -136,15 +136,15 @@ Request diagnostics for **ASP.NET Core**, as three middlewares:
 ```csharp
 using Pondhawk.Logging.AspNetCore;
 
-builder.Services.AddPondhawkDiagnostics(options => options.MaskedFormFields.Add("password"));
+builder.Services.AddPondhawkDiagnostics(options => options.MaskedBodyFields.Add("password"));
 
 app.UseDiagnosticsMonitor();      // early: Begin/End with status and elapsed time, and the correlation id
 app.UseAuthentication();
 app.UseDiagnosticsEnrichment();   // after authentication: subject and tenant on every event
-app.UseRequestLogging();          // deep: the whole request, when the category is at Debug
+app.UseRequestLogging();          // deep: the whole request and its response, when the category is at Debug
 ```
 
-Everything is logged under `Pondhawk.Diagnostics.Http`, which takes its own switch. An inbound `X-Correlation-Id` is validated before it is used and echoed back. The request dump is one JSON payload — URL, decoded query, headers and the body (a JSON body nested as JSON) up to 64 KB — that Watch indents, colours and folds. It shows the request as sent, less `Authorization` and `Cookie`; anything else is masked only when the application names it, so name password fields. See the [package README](src/Pondhawk.Logging.AspNetCore/README.md).
+Everything is logged under `Pondhawk.Diagnostics.Http`, which takes its own switch. An inbound `X-Correlation-Id` is validated before it is used and echoed back. A request that fails carries its exception on the monitor's End line. The request dump is a JSON payload — URL, decoded query, the endpoint and user it resolved to, headers and the body (a JSON body nested as JSON) up to 64 KB — that Watch indents, colours and folds, followed by the response the same way (status, elapsed time, headers, and the body when asked for). It shows what was sent, less `Authorization`, `Cookie` and `Set-Cookie` values; anything else is masked only when the application names it, so name password fields. See the [package README](src/Pondhawk.Logging.AspNetCore/README.md).
 
 ## Repository Layout
 
