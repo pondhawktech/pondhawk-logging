@@ -112,7 +112,8 @@ headers collapse out of the way and a JSON body reads as JSON instead of one lon
 - **`Headers`** — in full, except the masked ones (below).
 - **`Body`** — what was sent, up to `MaxBodyBytes`: a JSON body as nested JSON, a form post as an object of its
   decoded fields, any other text (XML, `text/*`) as a string. The body is buffered and rewound, so the endpoint
-  reads it from the start.
+  reads it from the start. A form that something earlier in the pipeline already parsed (an authentication
+  handler serving a token endpoint) is written from the parsed fields, since its stream may be spent.
 
 `Endpoint` and `User` are why this middleware is registered deep: before routing and authentication there is
 neither.
@@ -147,7 +148,7 @@ What is said *about* a body, request or response, goes beside it, never inside i
 | Property | When | Holds |
 |---|---|---|
 | `BodyOmitted` | The body was not written. | `ContentType`, `Length`, and `Reason`: `not text` (multipart, binary), `content-encoded` (compressed), `capture is off`, or `not valid JSON, so the masked fields could not be found` |
-| `BodyCut` | The body ran past `MaxBodyBytes`. `Body` is then the text that was kept, as a string. | `Written`, `Length` |
+| `BodyCut` | The body ran past `MaxBodyBytes`. `Body` is then the text that was kept, as a string. For a form already parsed, `Body` holds the whole fields that fit, counting each name and value as UTF-8. | `Written`, `Length` |
 | `BodyError` | The request body could not be read. | The error message |
 
 ### Masking
@@ -169,8 +170,9 @@ options.MaskedHeaders.Add("X-Api-Key");          // headers — or .Clear() to s
   a captured response. A masked JSON string becomes its length; a masked number, object or array becomes
   `***`.
 
-A masked value is replaced by its length as sent (`***(7)`), so an empty or truncated one still shows. Names
-match without regard to case.
+A masked value is replaced by its length (`***(7)`), so an empty or truncated one still shows. A header or
+query parameter gives its length as sent; a form field gives its decoded length, so `abc%20def` is `***(7)`
+whether or not the form was parsed before the dump. Names match without regard to case.
 
 Two limits worth knowing:
 

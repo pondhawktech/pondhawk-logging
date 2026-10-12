@@ -46,7 +46,7 @@ internal static class HttpDescriber
             writer.WriteString("Url", hasQuery ? string.Concat(path, "?", MaskPairs(query![1..], options.MaskedQueryParameters)) : path);
 
             if (hasQuery)
-                WritePairs(writer, "Query", query![1..], options.MaskedQueryParameters);
+                WriteFields(writer, "Query", Pairs(query![1..], options.MaskedQueryParameters, form: false));
 
             WriteEndpoint(writer, request.HttpContext);
             WriteUser(writer, request.HttpContext, options);
@@ -286,26 +286,41 @@ internal static class HttpDescriber
         writer.WriteEndObject();
     }
 
-    // A query string or form body as an object of decoded names and values, in the order sent; a name sent more
-    // than once gets an array. A masked value is its length as sent, the same figure the raw form shows.
-    private static void WritePairs(Utf8JsonWriter writer, string property, string pairs, ISet<string> masked)
+    // A query string or form body as decoded names and values, in the order sent. A masked query value is its
+    // length as sent, the same figure the Url shows. A masked form value is its decoded length (a name sent bare
+    // counting as an empty value), because that is all a form already parsed can give, and both must agree.
+    private static IEnumerable<KeyValuePair<string, string>> Pairs(string pairs, ISet<string> masked, bool form)
     {
-        var names = new List<string>();
-        var values = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-
         foreach (var pair in pairs.Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var equals = pair.IndexOf('=', StringComparison.Ordinal);
             var name = Decode(equals < 0 ? pair : pair[..equals]);
             var raw = equals < 0 ? string.Empty : pair[(equals + 1)..];
 
+            if (!masked.Contains(name))
+                yield return new(name, Decode(raw));
+            else if (form)
+                yield return new(name, Mask(Decode(raw).Length));
+            else
+                yield return new(name, equals >= 0 ? Mask(raw.Length) : string.Empty);
+        }
+    }
+
+    // An object of names and values, in the order given; a name given more than once gets an array.
+    private static void WriteFields(Utf8JsonWriter writer, string property, IEnumerable<KeyValuePair<string, string>> fields)
+    {
+        var names = new List<string>();
+        var values = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var (name, value) in fields)
+        {
             if (!values.TryGetValue(name, out var list))
             {
                 names.Add(name);
                 values[name] = list = [];
             }
 
-            list.Add(equals >= 0 && masked.Contains(name) ? Mask(raw.Length) : Decode(raw));
+            list.Add(value);
         }
 
         writer.WriteStartObject(property);
@@ -331,6 +346,41 @@ internal static class HttpDescriber
         writer.WriteEndObject();
     }
 
+    // The fields of a form that was parsed before the dump got to it. The cap counts each field's name and value
+    // as UTF-8, and only whole fields are written: the first that does not fit ends the body.
+    private static void WriteParsedForm(Utf8JsonWriter writer, IFormCollection form, int cap, long? length, ISet<string> masked)
+    {
+        var fields = new List<KeyValuePair<string, string>>();
+        var written = 0;
+        var cut = false;
+
+        foreach (var field in form)
+        {
+            foreach (var sent in field.Value)
+            {
+                var value = sent ?? string.Empty;
+                var size = (long)Encoding.UTF8.GetByteCount(field.Key) + Encoding.UTF8.GetByteCount(value);
+
+                if (size > cap - written)
+                {
+                    cut = true;
+                    break;
+                }
+
+                written += (int)size;
+                fields.Add(new(field.Key, masked.Contains(field.Key) ? Mask(value.Length) : value));
+            }
+
+            if (cut)
+                break;
+        }
+
+        WriteFields(writer, "Body", fields);
+
+        if (cut)
+            WriteCut(writer, written, length);
+    }
+
     // Body holds what was sent: nested JSON for a JSON body, an object of fields for a form post, otherwise the
     // text. What is said about the body rather than read from it goes beside it — BodyOmitted, BodyCut, BodyError
     // — so it can never be mistaken for the body's own content.
@@ -342,6 +392,13 @@ internal static class HttpDescriber
         if (reason is not null || !TryParse(request.ContentType, out var media))
         {
             WriteOmitted(writer, request.ContentType, request.ContentLength, reason ?? "not text");
+            return;
+        }
+
+        // Whoever parsed the form may have left the stream spent, so the fields are taken from the form itself.
+        if (IsForm(media) && request.HttpContext.Features.Get<IFormFeature>()?.Form is { } form)
+        {
+            WriteParsedForm(writer, form, cap, request.ContentLength, options.MaskedBodyFields);
             return;
         }
 
@@ -381,9 +438,9 @@ internal static class HttpDescriber
     // cutAt: how many bytes were kept of a body that ran longer, or null when all of it is here.
     private static void WriteBody(Utf8JsonWriter writer, MediaTypeHeaderValue media, string text, int? cutAt, string? contentType, long? length, ISet<string> masked)
     {
-        if (media.MediaType.Equals(FormContentType, StringComparison.OrdinalIgnoreCase))
+        if (IsForm(media))
         {
-            WritePairs(writer, "Body", text, masked);
+            WriteFields(writer, "Body", Pairs(text, masked, form: true));
         }
         else if (!IsJson(media))
         {
@@ -403,12 +460,15 @@ internal static class HttpDescriber
         }
 
         if (cutAt is { } written)
-        {
-            writer.WriteStartObject("BodyCut");
-            writer.WriteNumber("Written", written);
-            WriteLength(writer, length);
-            writer.WriteEndObject();
-        }
+            WriteCut(writer, written, length);
+    }
+
+    private static void WriteCut(Utf8JsonWriter writer, int written, long? length)
+    {
+        writer.WriteStartObject("BodyCut");
+        writer.WriteNumber("Written", written);
+        WriteLength(writer, length);
+        writer.WriteEndObject();
     }
 
     private static void WriteOmitted(Utf8JsonWriter writer, string? contentType, long? length, string reason)
@@ -485,6 +545,8 @@ internal static class HttpDescriber
                 break;
         }
     }
+
+    private static bool IsForm(MediaTypeHeaderValue media) => media.MediaType.Equals(FormContentType, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsJson(MediaTypeHeaderValue media) =>
         media.SubTypeWithoutSuffix.Equals("json", StringComparison.OrdinalIgnoreCase) || media.Suffix.Equals("json", StringComparison.OrdinalIgnoreCase);
