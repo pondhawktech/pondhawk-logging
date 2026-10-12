@@ -62,8 +62,8 @@ before authentication has a correlation id too.
 
 ### Subject and tenant
 
-The subject on each event defaults to the principal's name, so it reads as a person rather than an id; without
-a name it is the `client_id` claim, and only as a last resort the `sub` claim, then the name identifier claim.
+The subject on each event defaults to the `preferred_username` claim, so it reads as a person rather than an id;
+without one it is the `client_id` claim, and only as a last resort the `sub` claim, then the name identifier claim.
 `options.Subject` replaces that. The
 tenant comes from `options.Tenant` and is not set without it. Both go through `CorrelationManager`, stay in the
 process, and are stamped on each event by the sink (Watch, CloudWatch).
@@ -195,7 +195,7 @@ copied.
 |---|---|---|
 | `CorrelationHeader` | `X-Correlation-Id` | The inbound and echoed header. |
 | `EchoCorrelationId` | `true` | Write the id on the response. |
-| `Subject` | `sub`, then name identifier (on each event: name, then `client_id`, first) | `Func<HttpContext, string?>`. |
+| `Subject` | `sub`, then name identifier (on each event: `preferred_username`, then `client_id`, first) | `Func<HttpContext, string?>`. |
 | `Tenant` | none | `Func<HttpContext, string?>`. |
 | `Skip` | none | `Func<HttpContext, bool>`; true leaves a request out of the monitor and the dump. It still gets its correlation id, subject and tenant. |
 | `MaskedHeaders` | `Authorization`, `Cookie`, `Set-Cookie` | Request and response headers masked in the dump. Add to it or clear it. |

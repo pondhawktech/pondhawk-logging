@@ -53,16 +53,15 @@ public sealed class DiagnosticsEnrichmentMiddleware
         return _next(context);
     }
 
-    // The subject an event carries is there to be read, so with the default it is the caller's name, or the
-    // client id when there is no name, ahead of the sub claim the default gives. A delegate the application set
-    // is used as it is.
+    // The subject an event carries is there to be read, so with the default it is the caller's username, or the
+    // client id when there is no username, ahead of the sub claim the default gives. A delegate the application
+    // set is used as it is.
     private string? Subject(HttpContext context)
     {
         if (_options.Subject != DiagnosticsOptions.DefaultSubject)
             return _options.Subject?.Invoke(context);
 
-        return NullIfEmpty(context.User.Identity?.Name)
-            ?? NullIfEmpty(context.User.FindFirst("name")?.Value)
+        return NullIfEmpty(context.User.FindFirst("preferred_username")?.Value)
             ?? NullIfEmpty(context.User.FindFirst("client_id")?.Value)
             ?? DiagnosticsOptions.DefaultSubject(context);
     }
