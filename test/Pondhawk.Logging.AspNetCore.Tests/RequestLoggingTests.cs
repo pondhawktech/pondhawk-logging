@@ -195,11 +195,69 @@ public class RequestLoggingTests
         body.EnumerateObject().Select(p => p.Name).ShouldBe(["username", "Password", "client_secret", "remember"]);
         Text(body, "username").ShouldBe("pat");
         Text(body, "Password").ShouldBe("***(7)");
-        Text(body, "client_secret").ShouldBe("***(9)");
+        Text(body, "client_secret").ShouldBe("***(7)");
         Text(body, "remember").ShouldBe("on");
 
         // Masked in the log only: the endpoint still gets what was sent.
         seen.Body.ShouldBe("username=pat&Password=hunter2&client_secret=abc%20def&remember=on");
+    }
+
+    // Authentication that handles the request itself (a token endpoint) parses the form before the dump runs.
+    private static Action<IApplicationBuilder> ParsingTheFormFirst(Seen seen) => app =>
+    {
+        app.Use(async (context, next) =>
+        {
+            await context.Request.ReadFormAsync();
+            await next(context);
+        });
+
+        Dumping(seen)(app);
+    };
+
+    [Fact]
+    public async Task A_form_already_parsed_is_written_from_its_fields_and_masked_as_an_unparsed_one_is()
+    {
+        var seen = new Seen();
+        await using var app = await DiagnosticsApp.StartAsync(ParsingTheFormFirst(seen), options => options.MaskedBodyFields.Add("client_secret"));
+
+        await app.Client.PostAsync("/connect/token", Content("grant_type=client_credentials&client_secret=abc%20def&scope=a&scope=b", Form));
+
+        // The stream really was spent, so the fields can only have come from the parsed form.
+        seen.Buffered.ShouldBeFalse();
+        seen.Body.ShouldBeEmpty();
+
+        app.Log.Everything.ShouldNotContain("abc def");
+
+        var dump = Dump(app);
+        var body = dump.GetProperty("Body");
+        body.EnumerateObject().Select(p => p.Name).ShouldBe(["grant_type", "client_secret", "scope"]);
+        Text(body, "grant_type").ShouldBe("client_credentials");
+        Text(body, "client_secret").ShouldBe("***(7)");
+        body.GetProperty("scope").EnumerateArray().Select(v => v.GetString()).ShouldBe(["a", "b"]);
+        dump.TryGetProperty("BodyCut", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_form_already_parsed_is_cut_at_the_first_field_that_does_not_fit()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(ParsingTheFormFirst(new Seen()), options => options.MaxBodyBytes = 10);
+
+        await app.Client.PostAsync("/connect/token", Content("a=12345&bb=123456789&c=1", Form));
+
+        var dump = Dump(app);
+        dump.GetProperty("Body").EnumerateObject().Select(p => p.Name).ShouldBe(["a"]);
+        dump.GetProperty("BodyCut").GetProperty("Written").GetInt32().ShouldBe(6);
+        dump.GetProperty("BodyCut").GetProperty("Length").GetInt64().ShouldBe(24);
+    }
+
+    [Fact]
+    public async Task A_masked_form_field_sent_bare_is_masked_as_an_empty_value()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Dumping(new Seen()), options => options.MaskedBodyFields.Add("password"));
+
+        await app.Client.PostAsync("/signin", Content("username=pat&password", Form));
+
+        Text(Dump(app), "Body", "password").ShouldBe("***(0)");
     }
 
     [Fact]

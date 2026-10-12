@@ -131,7 +131,7 @@ public class DiagnosticsEnrichmentTests
     }
 
     [Fact]
-    public async Task The_subject_is_the_sub_claim_and_the_tenant_comes_from_the_delegate()
+    public async Task The_subject_is_the_sub_claim_as_a_last_resort_and_the_tenant_comes_from_the_delegate()
     {
         await using var app = await DiagnosticsApp.StartAsync(
             Enriched(new Claim("sub", "user-42"), new Claim(ClaimTypes.NameIdentifier, "other")),
@@ -143,6 +143,32 @@ public class DiagnosticsEnrichmentTests
 
         Handled(app).Subject.ShouldBe("user-42");
         Handled(app).Tenant.ShouldBe("acme");
+    }
+
+    [Theory]
+    [InlineData(ClaimTypes.Name)]
+    [InlineData("name")]
+    public async Task The_subject_is_the_name_ahead_of_the_sub_claim(string nameClaim)
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Enriched(new Claim("sub", "0b9f6c1e-5d2a-4c3b-9a55-1f2e3d4c5b6a"), new Claim(nameClaim, "pat")));
+
+        await GetAsync(app);
+
+        Handled(app).Subject.ShouldBe("pat");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task The_subject_is_the_client_id_when_the_name_is_blank(string name)
+    {
+        Claim[] claims = [new Claim("sub", "0b9f6c1e-5d2a-4c3b-9a55-1f2e3d4c5b6a"), new Claim("client_id", "billing-worker")];
+
+        await using var app = await DiagnosticsApp.StartAsync(Enriched(name is null ? claims : [.. claims, new Claim("name", name)]));
+
+        await GetAsync(app);
+
+        Handled(app).Subject.ShouldBe("billing-worker");
     }
 
     [Fact]
