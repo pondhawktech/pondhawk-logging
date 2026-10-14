@@ -3,11 +3,12 @@
 
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 
 namespace Pondhawk.Logging.AspNetCore.Tests.Support;
 
 /// <summary>
-/// A logging provider that keeps what is logged, with what <see cref="CorrelationManager"/> held at the time —
+/// A logging provider that keeps what is logged, with what <see cref="IOperationContext"/> held at the time —
 /// what a sink would stamp on the event.
 /// </summary>
 internal sealed class CapturingLoggerProvider : ILoggerProvider
@@ -49,6 +50,7 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
         string Payload,
         Exception Exception,
         string CorrelationId,
+        string SubjectId,
         string Subject,
         string Tenant);
 
@@ -76,9 +78,11 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
             if (state is IReadOnlyList<KeyValuePair<string, object>> properties)
                 payload = properties.FirstOrDefault(p => p.Key == LogPropertyNames.PayloadContent).Value as string;
 
+            var operation = Ambient<IOperationContext>.Current;
+
             provider._entries.Enqueue(new Entry(
                 category, logLevel, formatter(state, exception), payload, exception,
-                CorrelationManager.Current, CorrelationManager.Subject, CorrelationManager.Tenant));
+                operation.CorrelationId, operation.SubjectId, operation.SubjectName, operation.Tenant));
         }
     }
 }

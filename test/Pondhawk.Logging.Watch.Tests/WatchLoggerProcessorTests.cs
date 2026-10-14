@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Net;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using Pondhawk.Logging;
 using Pondhawk.Logging.Watch.Tests.Http;
 using Shouldly;
@@ -360,22 +361,36 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
-    public async Task Captures_CorrelationId_FromActivityBaggage()
+    public async Task Captures_CorrelationId_OfTheUnitOfWork()
     {
         var handler = new MockHttpHandler();
         var (factory, delivered) = Build(handler, new SwitchSource());
 
-        using var activity = new Activity("test");
-        activity.Start();
-        activity.SetBaggage(LogPropertyNames.CorrelationBaggageKey, "CID-123");
-
-        factory.CreateLogger("C").LogInformation("x");
+        using (Operation.Begin("CID-123"))
+            factory.CreateLogger("C").LogInformation("x");
 
         var e = await WaitForFirst(delivered);
         e.ShouldNotBeNull();
         e.CorrelationId.ShouldBe("CID-123");
+    }
 
-        activity.Stop();
+    [Fact]
+    public async Task Within_AnActivity_WithNoCorrelationId_OneIsSetAndShared()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        string? kept;
+        using (new Activity("test").Start())
+        {
+            factory.CreateLogger("C").LogInformation("x");
+            kept = Ambient<IOperationContext>.Current.CorrelationId;
+        }
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        kept.ShouldNotBeNullOrEmpty();
+        e.CorrelationId.ShouldBe(kept);
     }
 
     [Fact]
@@ -384,10 +399,10 @@ public class WatchLoggerProcessorTests
         var handler = new MockHttpHandler();
         var (factory, delivered) = Build(handler, new SwitchSource());
 
-        using (CorrelationManager.Begin())
+        using (Operation.Begin())
         {
-            CorrelationManager.SetSubject("kchen");
-            CorrelationManager.SetTenant("acme");
+            Ambient<IOperationContext>.Current.SubjectName = "kchen";
+            Ambient<IOperationContext>.Current.Tenant = "acme";
             factory.CreateLogger("C").LogInformation("x");
         }
 
@@ -403,7 +418,7 @@ public class WatchLoggerProcessorTests
         var handler = new MockHttpHandler();
         var (factory, delivered) = Build(handler, new SwitchSource());
 
-        using (CorrelationManager.Begin())
+        using (new Activity("test").Start())
             factory.CreateLogger("C").LogInformation("x");
 
         var e = await WaitForFirst(delivered);

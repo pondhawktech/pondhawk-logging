@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using Microsoft.AspNetCore.Http;
+using Pondhawk.Context;
 
 namespace Pondhawk.Logging.AspNetCore;
 
@@ -19,7 +20,7 @@ internal static class RequestCorrelation
 
     /// <summary>
     /// Returns the request's correlation id, settling it on first call: the inbound header when well formed,
-    /// otherwise the ambient one, otherwise a fresh one. It is set on the current Activity and, when asked for,
+    /// otherwise the ambient one, otherwise a fresh one. It is set on the ambient <see cref="IOperationContext"/> and, when asked for,
     /// written on the response.
     /// </summary>
     public static string Ensure(HttpContext context, DiagnosticsOptions options)
@@ -28,10 +29,10 @@ internal static class RequestCorrelation
             return known;
 
         var header = options.CorrelationHeader;
-        var id = Inbound(context, header) ?? Ambient() ?? Ulid.NewUlid().ToString(null, CultureInfo.InvariantCulture);
+        var id = Inbound(context, header) ?? Earlier() ?? Ulid.NewUlid().ToString(null, CultureInfo.InvariantCulture);
 
         context.Items[ItemKey] = id;
-        CorrelationManager.Set(id);
+        Ambient<IOperationContext>.Current.CorrelationId = id;
 
         if (options.EchoCorrelationId && !string.IsNullOrEmpty(header))
         {
@@ -75,10 +76,10 @@ internal static class RequestCorrelation
         return IsWellFormed(id) ? id : null;
     }
 
-    // Baggage arrives from the caller too (the W3C baggage header), so it gets the same check.
-    private static string? Ambient()
+    // Whatever set it earlier is trusted no further than the header: it may have copied it from the request.
+    private static string? Earlier()
     {
-        var id = CorrelationManager.Current;
+        var id = Ambient<IOperationContext>.Current.CorrelationId;
         return IsWellFormed(id) ? id : null;
     }
 }

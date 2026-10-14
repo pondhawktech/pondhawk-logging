@@ -53,7 +53,7 @@ sent — or an exception handler inside the bracket caught it first and answered
 ### Correlation id
 
 Taken from the inbound `X-Correlation-Id` when it is well formed, otherwise the ambient one, otherwise a fresh
-one; set with `CorrelationManager.Set` and echoed on the response so a caller can quote it. An id from outside
+one; set as the ambient `IOperationContext.CorrelationId` (Pondhawk.Context) and echoed on the response so a caller can quote it. An id from outside
 is accepted only if it is 1–64 ASCII letters, digits, `-`, `_` or `.` — a public server can be sent anything,
 and the value lands on every event of the request. Anything else is ignored and replaced.
 
@@ -64,9 +64,12 @@ before authentication has a correlation id too.
 
 The subject on each event defaults to the `preferred_username` claim, so it reads as a person rather than an id;
 without one it is the `client_id` claim, and only as a last resort the `sub` claim, then the name identifier claim.
-`options.Subject` replaces that. The
-tenant comes from `options.Tenant` and is not set without it. Both go through `CorrelationManager`, stay in the
-process, and are stamped on each event by the sink (Watch, CloudWatch).
+`options.Subject` replaces that. That is the subject's name, `IOperationContext.SubjectName`; its id,
+`SubjectId`, is the `sub` claim (or the name identifier), or the `client_id` for a machine acting for itself. A
+request with no caller has `anonymous` as both, so a log or an audit trail never shows a blank — code that
+learns later who is acting, as a sign-in page does, sets them itself. The tenant comes from `options.Tenant` and
+is not set without it. All of it is the ambient `IOperationContext` (Pondhawk.Context): it stays in the process,
+is stamped on each event by the sink (Watch, CloudWatch), and is there for anything else that reads it.
 
 All three values attach to the request's `Activity`. ASP.NET Core starts one whenever its own logging or a
 diagnostic listener is enabled; without one there is nothing to attach them to, and the request goes on

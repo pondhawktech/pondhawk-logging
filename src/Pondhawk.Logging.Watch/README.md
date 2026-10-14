@@ -133,14 +133,14 @@ public class Credentials
 ### Subject and tenant
 
 Watch shows each event's subject (who the work was for) and tenant, and filters on them. Set them on the
-unit of work with `CorrelationManager.SetSubject` and `SetTenant` (Pondhawk.Logging), and every event logged
-within it carries them:
+unit of work's `IOperationContext` (Pondhawk.Context), and every event logged within it carries them —
+the subject as `SubjectName`:
 
 ```csharp
-using (CorrelationManager.Begin())
+using (Operation.Begin())
 {
-    CorrelationManager.SetSubject("kchen");
-    CorrelationManager.SetTenant("acme");
+    Ambient<IOperationContext>.Current.SubjectName = "kchen";
+    Ambient<IOperationContext>.Current.Tenant = "acme";
     logger.LogInformation("Order {Id} placed", order.Id);   // Subject "kchen", Tenant "acme"
 }
 ```

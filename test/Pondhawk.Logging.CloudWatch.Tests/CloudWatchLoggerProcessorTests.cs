@@ -6,6 +6,7 @@ using Amazon.CloudWatchLogs;
 using InputLogEvent = Amazon.CloudWatchLogs.Model.InputLogEvent;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using Pondhawk.Logging.CloudWatch.Tests.Support;
 using Shouldly;
 using Xunit;
@@ -145,10 +146,10 @@ public class CloudWatchLoggerProcessorTests
     {
         var harness = Build();
 
-        using (CorrelationManager.Begin("corr-42"))
+        using (Operation.Begin("corr-42"))
         {
-            CorrelationManager.SetSubject("kchen");
-            CorrelationManager.SetTenant("acme");
+            Ambient<IOperationContext>.Current.SubjectName = "kchen";
+            Ambient<IOperationContext>.Current.Tenant = "acme";
             harness.Logger.ErrorWithContext(new InvalidOperationException("bad state"), new { OrderId = 42 }, "order failed");
         }
 

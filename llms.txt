@@ -1,6 +1,6 @@
 # Pondhawk.Logging
 
-> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) a journald-optimized console, an Amazon CloudWatch Logs provider, and ASP.NET Core request diagnostics. Five packages, all target net8.0, no dependency on any Pondhawk package beyond the logging API.
+> A standalone .NET structured logging API by Pond Hawk Technologies on Microsoft.Extensions.Logging (method tracing, object/typed-payload logging, [Sensitive] masking) — plus a Watch Server provider (ZLogger-based, Channel batching, dynamic switch-based level control) a journald-optimized console, an Amazon CloudWatch Logs provider, and ASP.NET Core request diagnostics. Five packages, all target net8.0, no dependency on any Pondhawk package beyond the logging API and Pondhawk.Context (the ambient `IOperationContext`: correlation id, subject, tenant).
 
 ## Packages
 
@@ -15,7 +15,7 @@ Install: `dotnet add package Pondhawk.Logging`
   - `LogObject(value)` / `LogObject(title, value)` → serialize an object to a JSON payload
   - `LogJson` / `LogSql` / `LogXml` / `LogYaml` / `LogText(title, content)` → typed payloads with syntax-highlight hints
 - `[Sensitive]` — masks a property when an object is serialized
-- `CorrelationManager`, `PayloadType`, `JsonObjectSerializer`, `LogPropertyNames` (the `Pondhawk.*` log-state property-name contract sinks read)
+- `PayloadType`, `JsonObjectSerializer`, `LogPropertyNames` (the `Pondhawk.*` log-state property-name contract sinks read)
 
 Loggers come from the standard `ILoggerFactory` (`CreateLogger<T>()` / `CreateLogger(Type)` / `CreateLogger(string)`), returning `Microsoft.Extensions.Logging.ILogger`.
 

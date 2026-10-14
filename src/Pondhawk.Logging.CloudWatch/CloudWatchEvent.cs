@@ -19,10 +19,10 @@ internal sealed class CloudWatchEvent
 
     public string? CorrelationId { get; init; }
 
-    /// <summary>Who the unit of work was for (<c>CorrelationManager.Subject</c>).</summary>
+    /// <summary>Who the unit of work was for (<c>IOperationContext.SubjectName</c>).</summary>
     public string? Subject { get; init; }
 
-    /// <summary>The tenant the unit of work belonged to (<c>CorrelationManager.Tenant</c>).</summary>
+    /// <summary>The tenant the unit of work belonged to (<c>IOperationContext.Tenant</c>).</summary>
     public string? Tenant { get; init; }
 
     public DateTime Occurred { get; init; }
