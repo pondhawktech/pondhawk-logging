@@ -26,26 +26,29 @@ Each method guards on `ILogger.IsEnabled` first, so a disabled (e.g. switch-drop
 serialization cost.
 
 Also included: `LogPropertyNames` (the public `Pondhawk.*` log-state property-name contract that sinks
-read), the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum, `CorrelationManager`,
+read), the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum,
 and public `TypeExtensions` (`GetConciseName` / `GetConciseFullName`).
 
 ## Correlation, subject and tenant
 
-`CorrelationManager` holds the current unit of work: its correlation id, and who it is for and which tenant
-it belongs to. Sinks stamp all three on every event logged within it.
+The current unit of work — its correlation id, who it is for and which tenant it belongs to — is
+`IOperationContext` from [Pondhawk.Context](https://www.nuget.org/packages/Pondhawk.Context), the one
+ambient context every Pondhawk library reads. Sinks stamp the correlation id, the subject's name and the
+tenant on every event logged within it; an audit journal can record the same values.
 
 ```csharp
-using (CorrelationManager.Begin())            // background work: a fresh correlation id
+using (Operation.Begin())                                   // background work: a fresh correlation id, subject "system"
 {
-    CorrelationManager.SetSubject(user.Name);  // or in middleware, from the signed-in user
-    CorrelationManager.SetTenant(user.Tenant);
+    var operation = Ambient<IOperationContext>.Current;
+    operation.SubjectName = user.Name;                      // or in middleware, from the signed-in user
+    operation.Tenant = user.Tenant;
     ...
 }
 ```
 
-The subject and tenant cover the current `Activity` and its children, and end with it. Unlike the
-correlation id they are not baggage, so they stay in the process: a user name is never sent to the services
-this one calls.
+All of it covers the current `Activity` and its children, and ends with it. None of it is baggage, so it
+stays in the process: a user name is never sent to the services this one calls, and a correlation id meant
+for one is sent on purpose, in a header.
 
 ## Acquiring loggers
 

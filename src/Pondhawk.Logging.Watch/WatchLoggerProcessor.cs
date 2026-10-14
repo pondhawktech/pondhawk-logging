@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Channels;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using ZLogger;
 
 namespace Pondhawk.Logging.Watch;
@@ -178,8 +179,9 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
             var correlationId = GetCorrelationId();
             var logEvent = ConvertEntry(log, correlationId);
-            logEvent.Subject = CorrelationManager.Subject ?? string.Empty;
-            logEvent.Tenant = CorrelationManager.Tenant ?? string.Empty;
+            var operation = Ambient<IOperationContext>.Current;
+            logEvent.Subject = operation.SubjectName ?? string.Empty;
+            logEvent.Tenant = operation.Tenant ?? string.Empty;
             _channel.Writer.TryWrite(logEvent);
         }
         catch
@@ -268,21 +270,20 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         return builder.ToString();
     }
 
+    // The ambient unit of work's id. Within an Activity that has none, a fresh one is set on it, so the rest of what
+    // it logs shares it; with no Activity there is nothing to keep it on, and each event stands alone.
     private static string GetCorrelationId()
     {
-        var activity = Activity.Current;
-        if (activity is not null)
-        {
-            var correlation = activity.GetBaggageItem(LogPropertyNames.CorrelationBaggageKey);
-            if (!string.IsNullOrEmpty(correlation))
-                return correlation;
+        var operation = Ambient<IOperationContext>.Current;
+        var correlation = operation.CorrelationId;
+        if (!string.IsNullOrEmpty(correlation))
+            return correlation;
 
-            var newId = Ulid.NewUlid().ToString(null, CultureInfo.InvariantCulture);
-            activity.SetBaggage(LogPropertyNames.CorrelationBaggageKey, newId);
-            return newId;
-        }
+        var newId = Ulid.NewUlid().ToString(null, CultureInfo.InvariantCulture);
+        if (Activity.Current is not null)
+            operation.CorrelationId = newId;
 
-        return Ulid.NewUlid().ToString(null, CultureInfo.InvariantCulture);
+        return newId;
     }
 
     private async Task FlushLoopAsync()

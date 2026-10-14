@@ -18,7 +18,7 @@
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.AspNetCore"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.AspNetCore?label=Logging.AspNetCore" alt="Pondhawk.Logging.AspNetCore on NuGet" /></a>
 </p>
 
-Five packages, all `net8.0`, with no dependency on any Pondhawk package beyond the logging API itself:
+Five packages, all `net8.0`, with no dependency on any Pondhawk package beyond the logging API itself and Pondhawk.Context, which holds the unit of work's correlation id, subject and tenant:
 
 | Package | Description |
 |---------|-------------|
@@ -58,7 +58,7 @@ logger.LogObject(LogLevel.Error, "result", result);
 logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 ```
 
-`[Sensitive]` masks a property when an object is serialized. Also included: `CorrelationManager`, the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
+`[Sensitive]` masks a property when an object is serialized. Also included: the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
 
 ### Changing the Watch destination while running
 

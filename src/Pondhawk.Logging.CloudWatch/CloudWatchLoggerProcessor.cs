@@ -8,6 +8,7 @@ using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using ZLogger;
 
 namespace Pondhawk.Logging.CloudWatch;
@@ -235,15 +236,16 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     private static CloudWatchEvent Capture(IZLoggerEntry entry)
     {
         var info = entry.LogInfo;
+        var operation = Ambient<IOperationContext>.Current;
 
         var logEvent = new CloudWatchEvent
         {
             Level = info.LogLevel,
             Category = info.Category.Name,
             Title = entry.ToString(),
-            CorrelationId = CorrelationManager.Current,
-            Subject = CorrelationManager.Subject,
-            Tenant = CorrelationManager.Tenant,
+            CorrelationId = operation.CorrelationId,
+            Subject = operation.SubjectName,
+            Tenant = operation.Tenant,
             Occurred = info.Timestamp.Utc.UtcDateTime,
             Exception = info.Exception,
         };

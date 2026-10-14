@@ -27,7 +27,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Ulid" />
+    <PackageReference Include="Pondhawk.Context" />
   </ItemGroup>
 
 </Project>

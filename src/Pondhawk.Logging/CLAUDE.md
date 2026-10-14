@@ -244,7 +244,6 @@ read. All are prefixed `Pondhawk.`:
 - `Pondhawk.PayloadContent` — serialized payload string
 - `Pondhawk.ErrorContext` — the `ErrorWithContext` context object, serialized to JSON
 - `Pondhawk.CorrelationId` — correlation identifier
-- `pondhawk.correlation` — `Activity` baggage key used to flow the correlation id
 
 ## Project Structure
 
@@ -256,7 +255,6 @@ src/Pondhawk.Logging/
   LogPropertyNames.cs                   # Public Pondhawk.* property-name contract
   PayloadType.cs                        # None, Json, Sql, Xml, Text, Yaml
   SensitiveAttribute.cs                 # [Sensitive] for masking properties
-  CorrelationManager.cs                 # Activity-based correlation ID management
   GlobalUsings.cs                       # Shared usings for the project
 
   Serializers/

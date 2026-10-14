@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using Pondhawk.Logging.AspNetCore.Tests.Support;
 using Shouldly;
 using Xunit;
@@ -153,6 +154,7 @@ public class DiagnosticsEnrichmentTests
         await GetAsync(app);
 
         Handled(app).Subject.ShouldBe("pat");
+        Handled(app).SubjectId.ShouldBe("0b9f6c1e-5d2a-4c3b-9a55-1f2e3d4c5b6a", "the id is what does not change");
     }
 
     [Theory]
@@ -179,6 +181,18 @@ public class DiagnosticsEnrichmentTests
         await GetAsync(app);
 
         Handled(app).Subject.ShouldBe("billing-worker");
+        Handled(app).SubjectId.ShouldBe("0b9f6c1e-5d2a-4c3b-9a55-1f2e3d4c5b6a");
+    }
+
+    [Fact]
+    public async Task A_machine_acting_for_itself_is_known_by_its_client_id()
+    {
+        await using var app = await DiagnosticsApp.StartAsync(Enriched(new Claim("client_id", "billing-worker")));
+
+        await GetAsync(app);
+
+        Handled(app).SubjectId.ShouldBe("billing-worker");
+        Handled(app).Subject.ShouldBe("billing-worker");
     }
 
     [Fact]
@@ -204,13 +218,14 @@ public class DiagnosticsEnrichmentTests
     }
 
     [Fact]
-    public async Task An_anonymous_request_has_no_subject_or_tenant()
+    public async Task An_anonymous_request_is_anonymous_and_has_no_tenant()
     {
         await using var app = await DiagnosticsApp.StartAsync(Enriched());
 
         await GetAsync(app);
 
-        Handled(app).Subject.ShouldBeNull();
+        Handled(app).SubjectId.ShouldBe(Operation.Anonymous);
+        Handled(app).Subject.ShouldBe(Operation.Anonymous);
         Handled(app).Tenant.ShouldBeNull();
     }
 

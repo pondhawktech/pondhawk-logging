@@ -263,7 +263,7 @@ src/Pondhawk.Logging.Watch/
   GlobalUsings.cs                       # Shared usings for the project
 ```
 
-The logging API types (`LoggingExtensions`, `MethodLogger`, `CorrelationManager`, `SensitiveAttribute`,
+The logging API types (`LoggingExtensions`, `MethodLogger`, `SensitiveAttribute`,
 `PayloadType`, `LogPropertyNames`, `Serializers/*`, `TypeExtensions`) live in `Pondhawk.Logging`, not
 this package.
 

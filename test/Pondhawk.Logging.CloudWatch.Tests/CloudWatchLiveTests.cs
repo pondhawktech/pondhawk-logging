@@ -8,6 +8,7 @@ using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
 using Amazon.Runtime.CredentialManagement;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using Shouldly;
 using Xunit;
 
@@ -99,7 +100,7 @@ public class CloudWatchLiveTests
 
             logger.LogDebug("never sent");
             logger.LogInformation("first event of a new group");
-            using (CorrelationManager.Begin("01KLIVE"))
+            using (Operation.Begin("01KLIVE"))
                 logger.ErrorWithContext(Thrown(), new { OrderId = 42 }, "live test");
 
             factory.Dispose();
