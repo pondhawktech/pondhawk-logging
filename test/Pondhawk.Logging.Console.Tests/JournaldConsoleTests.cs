@@ -64,4 +64,23 @@ public class JournaldConsoleTests
         // A single physical line (one journald entry) — only the trailing newline.
         output.TrimEnd().ShouldNotContain("\n");
     }
+
+    [Theory]
+    [InlineData(null, LogLevel.Information, false)]                  // the default floor is Warning
+    [InlineData(null, LogLevel.Warning, true)]
+    [InlineData(LogLevel.Information, LogLevel.Information, true)]   // a floor of its own
+    [InlineData(LogLevel.Information, LogLevel.Debug, false)]
+    public void The_console_writes_from_its_floor_up(LogLevel? floor, LogLevel level, bool written)
+    {
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.SetMinimumLevel(LogLevel.Trace);
+            if (floor is { } minimum)
+                b.AddJournaldConsole(minimum);
+            else
+                b.AddJournaldConsole();
+        });
+
+        factory.CreateLogger("My.Category").IsEnabled(level).ShouldBe(written);
+    }
 }

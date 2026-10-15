@@ -121,4 +121,94 @@ public class TracingTests
                     var total = count * 2;
                     Console.WriteLine(total);
             """), "PHLM007");
+
+    // Found in fabrica-one: a helper that enters a trace and returns the logger for its caller to dispose.
+    [Fact]
+    public Task An_EnterMethod_nothing_here_closes_is_left_for_whoever_disposes_the_logger() =>
+        MigrationTest.NoneAsync(Code("""
+                    log.EnterMethod("Place");
+                    Save();
+            """), "PHLM006");
+
+    // Found in fabrica-one: once rewritten, the EnterMethod carries over, so the usings can go.
+    [Fact]
+    public Task A_rewritten_trace_lets_the_usings_go() =>
+        MigrationTest.RunAsync("""
+            using System;
+            {|PHLM015:using Fabrica.Watch;|}
+
+            class Orders
+            {
+                void Place(ILogger log)
+                {
+                    using var _ = log.EnterMethod();
+                }
+            }
+            """, """
+            using System;
+            using Microsoft.Extensions.Logging;
+            using Pondhawk.Logging;
+
+            class Orders
+            {
+                void Place(ILogger log)
+                {
+                    using var _ = log.EnterMethod();
+                }
+            }
+            """, "PHLM015");
+
+    // Found in fabrica-one: every Fabrica.Watch logger is disposable, a Microsoft.Extensions.Logging one is not.
+    [Fact]
+    public Task A_using_on_a_logger_that_is_not_a_method_trace_goes() =>
+        MigrationTest.RunAsync(Code("""
+                    {|PHLM006:using var logger = this.GetLogger();|}
+                    Save();
+            """), Code("""
+                    var logger = this.GetLogger();
+                    Save();
+            """), "PHLM006");
+
+    [Fact]
+    public Task A_using_on_a_method_trace_stays() =>
+        MigrationTest.NoneAsync(Code("""
+                    using var logger = this.EnterMethod();
+                    Save();
+            """), "PHLM006");
+
+    [Fact]
+    public Task A_using_statement_on_a_logger_that_is_not_a_method_trace_becomes_a_block() =>
+        MigrationTest.RunAsync(Code("""
+                    {|PHLM006:using (var started = this.GetLogger())
+                    {
+                        Save();
+                    }|}
+            """), Code("""
+                    {
+                        var started = this.GetLogger();
+                        Save();
+                    }
+            """), "PHLM006");
+
+    // Found in fabrica-one: a plain logger handed back to Fabrica.Watch's pool with an explicit Dispose.
+    [Fact]
+    public Task Disposing_a_plain_logger_goes() =>
+        MigrationTest.RunAsync(Code("""
+                    var logger = this.GetLogger();
+                    Save();
+                    {|PHLM006:logger.Dispose();|}
+                    Save();
+            """), Code("""
+                    var logger = this.GetLogger();
+                    Save();
+                    Save();
+            """), "PHLM006");
+
+    [Fact]
+    public Task Disposing_a_method_trace_stays() =>
+        MigrationTest.NoneAsync(Code("""
+                    var logger = this.EnterMethod();
+                    Save();
+                    logger.Dispose();
+            """), "PHLM006");
 }

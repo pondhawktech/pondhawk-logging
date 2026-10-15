@@ -47,6 +47,10 @@ internal static class Acquisition
             && !IsPlain((InvocationExpressionSyntax)invocation.Syntax);
     }
 
+    /// <summary><c>this.EnterMethodSlim(category)</c>, which becomes a Microsoft.Extensions.Logging logger.</summary>
+    public static bool IsSlim(IInvocationOperation invocation) =>
+        FabricaWatch.Calls(invocation, FabricaWatch.WatchExtensions, "EnterMethodSlim");
+
     /// <summary>Whether a call is written with no type arguments and no named arguments.</summary>
     public static bool IsPlain(InvocationExpressionSyntax invocation) =>
         invocation.Expression is MemberAccessExpressionSyntax { Name: IdentifierNameSyntax }

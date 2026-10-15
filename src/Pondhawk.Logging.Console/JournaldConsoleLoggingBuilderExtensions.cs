@@ -14,20 +14,32 @@ namespace Pondhawk.Logging.Console;
 /// Adds a ZLogger console optimized for systemd-journald: each line is prefixed with the sd-daemon
 /// priority (<c>&lt;N&gt;</c>) mapped from the log level, plus the category, with no timestamp and no ANSI
 /// color — journald stamps the time itself and stores raw text, and the <c>&lt;N&gt;</c> prefix sets the
-/// entry's <c>PRIORITY</c> so <c>journalctl -p</c> filtering works. Fixed at Warning: intended for a Linux
-/// production service console that surfaces only warnings and errors.
+/// entry's <c>PRIORITY</c> so <c>journalctl -p</c> filtering works. At Warning by default: intended for a
+/// Linux production service console that surfaces only warnings and errors. A service whose journal is its
+/// record of routine work — or a command-line tool whose output is a CI job's log — can lower the floor.
 /// </summary>
 public static class JournaldConsoleLoggingBuilderExtensions
 {
     /// <summary>
-    /// Adds the journald-optimized ZLogger console, fixed at <see cref="LogLevel.Warning"/>.
+    /// Adds the journald-optimized ZLogger console at <see cref="LogLevel.Warning"/>: only Warning, Error and
+    /// Critical reach it.
     /// </summary>
     /// <param name="builder">The logging builder.</param>
     /// <returns>The logging builder for chaining.</returns>
-    public static ILoggingBuilder AddJournaldConsole(this ILoggingBuilder builder)
+    public static ILoggingBuilder AddJournaldConsole(this ILoggingBuilder builder) =>
+        builder.AddJournaldConsole(LogLevel.Warning);
+
+    /// <summary>
+    /// Adds the journald-optimized ZLogger console with its own floor: nothing below <paramref name="minimum"/>
+    /// reaches it, whatever any other provider keeps.
+    /// </summary>
+    /// <param name="builder">The logging builder.</param>
+    /// <param name="minimum">The lowest level written — <see cref="LogLevel.Information"/> for a journal that records routine work.</param>
+    /// <returns>The logging builder for chaining.</returns>
+    public static ILoggingBuilder AddJournaldConsole(this ILoggingBuilder builder, LogLevel minimum)
     {
-        // Fixed at Warning: only Warning, Error, and Critical reach this console.
-        builder.AddFilter<ZLoggerConsoleLoggerProvider>(category: null, LogLevel.Warning);
+        // Scoped to this provider: it sets this console's floor and no other provider's.
+        builder.AddFilter<ZLoggerConsoleLoggerProvider>(category: null, minimum);
 
         return builder.AddZLoggerConsole(options => options.UsePlainTextFormatter(ConfigureJournald));
     }

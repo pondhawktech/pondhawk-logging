@@ -48,6 +48,13 @@ public class MessageTests
     public Task A_positional_template_gets_named_holes(string fabrica, string logging) =>
         MigrationTest.RunAsync(Code("{|PHLM002:" + fabrica + "|};"), Code(logging + ";"), "PHLM002");
 
+    // Found in fabrica-one: its copy of Fabrica.Watch names the template overloads DebugFormat, WarningFormat, ….
+    [Theory]
+    [InlineData("""logger.WarningFormat("Appliance {0} did not stop", name)""", """logger.LogWarning("Appliance {Name} did not stop", name)""")]
+    [InlineData("""logger.DebugFormat("Placed {0}", count)""", """logger.LogDebug("Placed {Count}", count)""")]
+    public Task A_renamed_template_overload_is_a_template_too(string fabrica, string logging) =>
+        MigrationTest.RunAsync(Code("{|PHLM002:" + fabrica + "|};"), Code(logging + ";"), "PHLM002");
+
     [Fact]
     public Task Different_values_that_name_alike_take_more_of_their_name_then_a_number() =>
         MigrationTest.RunAsync(

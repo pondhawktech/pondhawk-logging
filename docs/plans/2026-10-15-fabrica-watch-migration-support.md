@@ -130,7 +130,7 @@ them in `.editorconfig` to stop new Fabrica.Watch calls appearing mid-migration.
 | PHLM014 | `Fabrica.Watch.SensitiveAttribute` / `Fabrica.Watch.Sink.PayloadType` **written in full**; simple names carry over with PHLM015 | `Pondhawk.Logging`'s. Member names carry over, numbers do not (Fabrica `Xml = 2, Sql = 3`; Pondhawk `Sql = 2, Xml = 3`) |
 | PHLM015 | `using Fabrica.Watch;` (and `.Sink`, …) once **every** Fabrica.Watch use left in the file is one the swap carries over (below) | `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;`, each only if the file uses it. A `global using` is left for the guide's manual step |
 | PHLM016 | `Fabrica.Watch.ILogger` **written in full** (including a using alias); a simple `ILogger` carries over with PHLM015 | `Microsoft.Extensions.Logging.ILogger` |
-| PHLM020 | `CreateEvent(…)` + `LogEvent(…)` | **Report only.** Explains the levelled payload overloads (`LogJson(level, …)`, `LogText(level, …)`, `LogObject(level, …)`) and `ErrorWithContext`; hand-migrate |
+| PHLM020 | `CreateEvent(…)` + `LogEvent(…)` | Created and logged at once: the levelled payload call (`LogJson/LogText/…(level, title, payload)`, `LogObject(level, …)`, `ErrorWithContext`). Otherwise report only |
 | PHLM021 | `WatchFactoryBuilder` / `UseMongo` / `UseRealtime` / `UseQuiet` / `UseLocalSwitchSource` / `WatchFactoryLocator.SetFactory` | **Report only.** Points to `AddWatch` / `AddCloudWatch` / `AddJournaldConsole` and `LoggingFactoryLocator.SetFactory` (set once) |
 | PHLM022 | Fabrica.Watch.Bridges `LoggerProvider` registered into MEL | **Report only.** The bridge is no longer needed — MEL is the API |
 | PHLM023 | `GetCurrentScope` / `SetCurrentScope`, `Category` property reads | **Report only.** No equivalent; explain alternatives |
@@ -150,6 +150,32 @@ usings allow. Fabrica.Watch's own source, if vendored into the solution, is neve
 **Built:** step 1 — PHLM001, PHLM005, PHLM012–PHLM016; step 2 — PHLM002–PHLM004, PHLM006–PHLM011,
 PHLM020–PHLM023 and the golden-file test (every rule together on a realistic class, which must compile).
 `src/Pondhawk.Logging.Migration`, tests in `test/Pondhawk.Logging.Migration.Tests`.
+
+**Step 3 — the guide and a real run (2026-10-15).** `MIGRATING-FROM-FABRICA-WATCH.md` is written. The real run
+was **fabrica-one**, in a scratch clone (the repository itself untouched): 17 projects, about 600 Fabrica.Watch
+sites, Fabrica.Watch and `Fabrica.Core` vendored as source. Final state: the runs converge in four passes,
+rewrite 59 files and leave 4 TODOs. After two hand changes — `Fabrica.Core`'s logger helpers, and
+`WatchCorrelation.Begin` → `Operation.Begin` — **every application project compiles**; what remains is set-up (72
+sites) and the tests of the Fabrica.Watch machinery being removed. It found ten analyzer defects, each fixed with
+a test:
+
+- an `EnterMethod` left behind by a correct rewrite did not carry over, so the file kept its usings;
+- an `EnterMethod` nothing in the method closed (enter, then return the logger) was made a `using`, ending the
+  trace before the caller had it — now only an `EnterMethod` a `LeaveMethod` closes is rewritten;
+- `…WithContext` arguments were found by position; that copy adds exception-less overloads — now by parameter,
+  and any level's `…WithContext`;
+- that copy names the template overloads `DebugFormat` …;
+- a rewrite that changes a logger's type (PHLM012) hid later rules' calls on it, since `dotnet format` applies
+  one rule at a time — type-changing rewrites now wait until nothing else in the file needs a rule;
+- the same across files: swapping the usings of a file that hands out `ILogger` changed the type under its
+  callers — such a file now keeps its usings for the hand step;
+- `using` on a plain logger no longer compiles (a MEL logger is not disposable) — PHLM006 removes it, declaration
+  and statement forms;
+- a Fabrica.Watch API no rule knew held a file silently — PHLM024 now reports it;
+- an explicit `logger.Dispose()` on a plain logger (a MEL logger has none) — PHLM006 removes it;
+- events built by hand were report-only, though every one was created and logged at once — **PHLM020 now
+  rewrites** that pair into the levelled payload call (decided 2026-10-15: no `CreateEvent`/`LogEvent` in
+  Pondhawk.Logging; the API has no event type of its own, and one call says what the pair did).
 
 **What a fix cannot settle it marks (decided 2026-10-15).** Rather than refuse a hard case, a fix writes code
 that compiles and puts `// TODO(Fabrica.Watch migration): …` above the statement — a template that is not a

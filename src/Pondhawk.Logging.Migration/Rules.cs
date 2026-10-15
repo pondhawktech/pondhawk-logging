@@ -90,7 +90,7 @@ internal static class Rules
         "PHLM008",
         "Fabrica.Watch error or warning with context",
         "'{0}' needs rewriting for Pondhawk.Logging",
-        "ErrorWithContext needs a string message in Pondhawk.Logging. WarningWithContext becomes LogObject(LogLevel.Warning, \"Context\", context) and LogWarning(exception, message).");
+        "ErrorWithContext(exception, context) needs a string message in Pondhawk.Logging. Any other …WithContext — WarningWithContext, or the exception-less ErrorWithContext(context, message) and InfoWithContext some copies of Fabrica.Watch add — becomes LogObject(LogLevel.X, \"Context\", context) and LogX(message). Arguments are found by parameter, not position.");
 
     public static readonly DiagnosticDescriptor InspectName = Rule(
         "PHLM009",
@@ -114,7 +114,7 @@ internal static class Rules
         "PHLM020",
         "Fabrica.Watch event built by hand",
         "'{0}' builds a Fabrica.Watch event by hand; use a levelled payload method or ErrorWithContext",
-        "No rewrite. LogJson(level, …), LogText(level, …), LogObject(level, …) and ErrorWithContext carry a payload on the event that needs it; see the migration guide.");
+        "An event created and logged at once (var ev = logger.CreateEvent(…); logger.LogEvent(ev);) becomes the one call that says the same: LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload), LogObject(level, title, value), ErrorWithContext, or LogX(title). An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only.");
 
     public static readonly DiagnosticDescriptor Bootstrap = Rule(
         "PHLM021",
@@ -133,6 +133,12 @@ internal static class Rules
         "Fabrica.Watch logger state",
         "'{0}' has no Pondhawk.Logging equivalent",
         "No rewrite. GetCurrentScope, SetCurrentScope and a logger's Category have no equivalent on ILogger; see the migration guide.");
+
+    public static readonly DiagnosticDescriptor Unmigrated = Rule(
+        "PHLM024",
+        "Fabrica.Watch use with no rule",
+        "'{0}' is Fabrica.Watch with no rule to rewrite it; migrate it by hand",
+        "No rewrite. An API a copy of Fabrica.Watch added, a sink type, or anything else no rule covers. It keeps the file's Fabrica.Watch usings until it is dealt with; see the migration guide.");
 
     private static DiagnosticDescriptor Rule(string id, string title, string message, string description) =>
         new(id, title, message, Category, DiagnosticSeverity.Info, isEnabledByDefault: true, description, Guide + "#" + id.ToLowerInvariant());

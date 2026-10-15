@@ -52,10 +52,10 @@ Install: `dotnet add package Pondhawk.Logging.Console`
 using Microsoft.Extensions.Logging;
 using Pondhawk.Logging.Console;
 
-builder.Logging.AddJournaldConsole();   // fixed at Warning; for Linux production under systemd
+builder.Logging.AddJournaldConsole();   // Warning and above by default; AddJournaldConsole(LogLevel.Information) for a floor of its own
 ```
 **Key types (`Pondhawk.Logging.Console` namespace):**
-- `JournaldConsoleLoggingBuilderExtensions` — `AddJournaldConsole(this ILoggingBuilder)`: a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>` mapped from `LogLevel`) and category, with no timestamp and no ANSI color; exceptions render inline (single journald entry). Fixed at Warning.
+- `JournaldConsoleLoggingBuilderExtensions` — `AddJournaldConsole(this ILoggingBuilder[, LogLevel minimum])`: a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>` mapped from `LogLevel`) and category, with no timestamp and no ANSI color; exceptions render inline (single journald entry). Fixed at Warning.
 
 ### Pondhawk.Logging.CloudWatch — Amazon CloudWatch Logs provider
 
@@ -95,7 +95,7 @@ All events use the category `Pondhawk.Diagnostics.Http`, at Debug. The monitor's
 
 ### Pondhawk.Logging.Migration — Fabrica.Watch migration (development-only)
 
-Install: `<PackageReference Include="Pondhawk.Logging.Migration" PrivateAssets="all" />` — a Roslyn analyzer (`netstandard2.0`) with code fixes; nothing ships with the application. Run `dotnet format analyzers <solution> --severity info --diagnostics PHLM001 PHLM002 PHLM003 PHLM004 PHLM005 PHLM006 PHLM007 PHLM008 PHLM009 PHLM011 PHLM012 PHLM013 PHLM014 PHLM015 PHLM016` until it changes nothing, with Fabrica.Watch still referenced, then search for `TODO(Fabrica.Watch migration)`. It rewrites level calls (positional and interpolated messages become named-hole templates; a `Func<string>` goes behind `IsEnabled`), `Is*Enabled`, method tracing (`LeaveMethod` goes, `EnterMethod` becomes a `using`), scopes, `ErrorWithContext`/`WarningWithContext`, `Inspect`, `WatchFactoryLocator`, and swaps `using Fabrica.Watch;` for `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;` once every use left in the file means the same under them. PHLM010 and PHLM020–023 only report.
+Install: `<PackageReference Include="Pondhawk.Logging.Migration" PrivateAssets="all" />` — a Roslyn analyzer (`netstandard2.0`) with code fixes; nothing ships with the application. Run `dotnet format analyzers <solution> --severity info --diagnostics PHLM001 PHLM002 PHLM003 PHLM004 PHLM005 PHLM006 PHLM007 PHLM008 PHLM009 PHLM011 PHLM012 PHLM013 PHLM014 PHLM015 PHLM016 PHLM020` until it changes nothing, with Fabrica.Watch still referenced, then search for `TODO(Fabrica.Watch migration)`. It rewrites level calls (positional and interpolated messages become named-hole templates; a `Func<string>` goes behind `IsEnabled`), `Is*Enabled`, method tracing (`LeaveMethod` goes, `EnterMethod` becomes a `using`), scopes, `ErrorWithContext`/`WarningWithContext`, `Inspect`, `WatchFactoryLocator`, and swaps `using Fabrica.Watch;` for `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;` once every use left in the file means the same under them. PHLM020 rewrites an event created and logged at once; PHLM010, PHLM021–024 and other events only report. Full guide: `MIGRATING-FROM-FABRICA-WATCH.md`.
 
 ## Docs
 - [README.md](README.md) — overview and examples
