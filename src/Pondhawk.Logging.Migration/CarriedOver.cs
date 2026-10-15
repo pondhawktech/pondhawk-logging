@@ -20,7 +20,7 @@ internal static class CarriedOver
     private static readonly string[] Types = [FabricaWatch.Logger, FabricaWatch.Sensitive, FabricaWatch.PayloadType];
 
     // Fabrica.Watch logger extensions whose Pondhawk.Logging namesake takes the same arguments.
-    private static readonly string[] SameShape = ["LogSql", "LogYaml", "LogObject"];
+    private static readonly string[] SameShape = ["LogSql", "LogYaml", "LogObject", "EnterMethod"];
 
     /// <summary>Whether this Fabrica.Watch use needs nothing but the using swap.</summary>
     public static bool IsCarried(SimpleNameSyntax name, ISymbol symbol, SemanticModel model, CancellationToken cancellationToken)
@@ -69,7 +69,7 @@ internal static class CarriedOver
         {
             "LogJson" or "LogXml" => FabricaWatch.Argument(invocation, 3) is not { ArgumentKind: ArgumentKind.Explicit },
             "Inspect" => HasStringName(invocation),
-            "ErrorWithContext" => HasStringMessage(invocation),
+            "ErrorWithContext" => ContextCall.Match(invocation)?.CarriesOver ?? false,
             _ => SameShape.Contains(declared.Name, StringComparer.Ordinal),
         };
     }
@@ -77,10 +77,6 @@ internal static class CarriedOver
     /// <summary>Fabrica.Watch's Inspect takes an object name; Pondhawk.Logging's a string.</summary>
     public static bool HasStringName(IInvocationOperation invocation) =>
         FabricaWatch.Argument(invocation, 1) is { } argument && IsString(argument);
-
-    /// <summary>Fabrica.Watch's ErrorWithContext message is optional and any object; Pondhawk.Logging's a string.</summary>
-    public static bool HasStringMessage(IInvocationOperation invocation) =>
-        FabricaWatch.Argument(invocation, 3) is { ArgumentKind: ArgumentKind.Explicit } argument && IsString(argument);
 
     private static bool IsString(IArgumentOperation argument)
     {

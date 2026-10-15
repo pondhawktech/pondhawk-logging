@@ -24,13 +24,14 @@ Five packages, all `net8.0`, with no dependency on any Pondhawk package beyond t
 |---------|-------------|
 | [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport** — providers build on it. |
 | [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
-| [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), fixed at Warning for Linux production services. |
+| [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), at Warning by default for Linux production services, or from a floor you choose. |
 | [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
 | [**Pondhawk.Logging.AspNetCore**](src/Pondhawk.Logging.AspNetCore/README.md) | ASP.NET Core request diagnostics for `Pondhawk.Logging` — correlation id, subject and tenant on every event of a request, a begin/end bracket with status and elapsed time, and an opt-in dump of the whole request. Needs the ASP.NET Core shared framework. |
 
 Moving off **Fabrica.Watch**? [**Pondhawk.Logging.Migration**](src/Pondhawk.Logging.Migration/README.md) is a
 development-only Roslyn analyzer (`netstandard2.0`) whose code fixes rewrite Fabrica.Watch calls to
-`Microsoft.Extensions.Logging` and this API.
+`Microsoft.Extensions.Logging` and this API. The whole path — what the analyzer does, what is left for you,
+what behaves differently — is in [MIGRATING-FROM-FABRICA-WATCH.md](MIGRATING-FROM-FABRICA-WATCH.md).
 
 ## Installation
 
@@ -108,7 +109,7 @@ builder.Logging.AddWatch("http://localhost:11000/MyApp");
 
 ## Pondhawk.Logging.Console
 
-A console optimized for **systemd-journald** on Linux production servers — fixed at Warning:
+A console optimized for **systemd-journald** on Linux production servers — at Warning by default, or from a floor you pass (`AddJournaldConsole(LogLevel.Information)`):
 
 ```csharp
 using Microsoft.Extensions.Logging;

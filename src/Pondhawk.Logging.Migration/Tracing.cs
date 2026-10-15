@@ -18,14 +18,22 @@ namespace Pondhawk.Logging.Migration;
 /// <c>EnterScope/LeaveScope</c> become a <c>using (logger.EnterMethod(name)) { … }</c> around what they bracketed.
 /// Matching is by the logger's text, among the loggers the original body traced with Fabrica.Watch.
 /// </summary>
-internal sealed class Tracing(HashSet<string> loggers, RewriteContext context) : CSharpSyntaxRewriter
+internal sealed class Tracing(HashSet<string> loggers, HashSet<string> undisposed, RewriteContext context) : CSharpSyntaxRewriter
 {
     private readonly HashSet<string> _left = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _leaving = new(StringComparer.Ordinal);
     private readonly HashSet<string> _entered = new(StringComparer.Ordinal);
 
     /// <summary>Rewrites <paramref name="body"/>, leaving TODOs above its first statement for what it could not settle.</summary>
     public BlockSyntax Rewrite(BlockSyntax body)
     {
+        // Only an EnterMethod a LeaveMethod closes in this body becomes a using declaration.
+        foreach (var statement in body.DescendantNodes().OfType<StatementSyntax>())
+        {
+            if (Call(statement) is { Method: "LeaveMethod" } leave)
+                _leaving.Add(leave.Logger);
+        }
+
         var rewritten = (BlockSyntax)Visit(body);
 
         foreach (var orphan in _left.Except(_entered, StringComparer.Ordinal))
@@ -40,6 +48,9 @@ internal sealed class Tracing(HashSet<string> loggers, RewriteContext context) :
     /// <inheritdoc />
     public override SyntaxNode? VisitExpressionStatement(ExpressionStatementSyntax node)
     {
+        if (undisposed.Contains(node.Expression.ToString()))
+            return Removed(node);
+
         if (Call(node) is not { } call)
             return base.VisitExpressionStatement(node);
 
@@ -49,13 +60,27 @@ internal sealed class Tracing(HashSet<string> loggers, RewriteContext context) :
                 _left.Add(call.Logger);
                 return Removed(node);
 
-            case "EnterMethod":
+            case "EnterMethod" when _leaving.Contains(call.Logger):
                 _entered.Add(call.Logger);
                 return UsingDeclaration("_", call.Invocation.WithoutTrivia(), node);
 
             default:
                 return base.VisitExpressionStatement(node);
         }
+    }
+
+    /// <inheritdoc />
+    public override SyntaxNode? VisitUsingStatement(UsingStatementSyntax node)
+    {
+        // using (var logger = this.GetLogger()) { … } → { var logger = this.GetLogger(); … }
+        if (node.Declaration is not { Variables.Count: 1 } declaration || !undisposed.Contains(declaration.Variables[0].Identifier.ValueText))
+            return base.VisitUsingStatement(node);
+
+        var inner = (StatementSyntax)Visit(node.Statement)!;
+        var statements = new List<StatementSyntax> { SyntaxFactory.LocalDeclarationStatement(declaration.WithoutTrivia()) };
+        statements.AddRange(inner is BlockSyntax block ? block.Statements : [inner]);
+
+        return SyntaxFactory.Block(statements).WithTriviaFrom(node).WithAdditionalAnnotations(Formatter.Annotation);
     }
 
     /// <inheritdoc />
@@ -74,6 +99,11 @@ internal sealed class Tracing(HashSet<string> loggers, RewriteContext context) :
 
                 case TryStatementSyntax { Finally.Block.Statements.Count: 0 } attempt:
                     statements.Add(attempt.WithFinally(null));
+                    break;
+
+                case LocalDeclarationStatementSyntax { Declaration.Variables.Count: 1 } declaration
+                    when !declaration.UsingKeyword.IsKind(SyntaxKind.None) && undisposed.Contains(declaration.Declaration.Variables[0].Identifier.ValueText):
+                    statements.Add(WithoutUsing(declaration));
                     break;
 
                 case LocalDeclarationStatementSyntax declaration when EnteredLocal(declaration) is { } name:
@@ -176,6 +206,13 @@ internal sealed class Tracing(HashSet<string> loggers, RewriteContext context) :
             .WithTriviaFrom(like) is LocalDeclarationStatementSyntax declaration
             ? declaration
             : throw new InvalidOperationException("A using declaration did not parse as one.");
+
+    private static LocalDeclarationStatementSyntax WithoutUsing(LocalDeclarationStatementSyntax declaration)
+    {
+        var leading = declaration.UsingKeyword.LeadingTrivia;
+        var stripped = declaration.WithUsingKeyword(default);
+        return stripped.WithLeadingTrivia(leading);
+    }
 
     private static LocalDeclarationStatementSyntax WithUsing(LocalDeclarationStatementSyntax declaration)
     {

@@ -22,6 +22,7 @@ namespace Fabrica.Watch
         ILogEvent CreateEvent(Level level, object? title);
         ILogEvent CreateEvent(Level level, object? title, PayloadType type, string? payload);
         ILogEvent CreateEvent(Level level, object? title, object? payload);
+        ILogEvent CreateEvent(Level level, object? title, Exception ex, object? context);
         void LogEvent(ILogEvent logEvent);
     }
 
@@ -58,6 +59,15 @@ namespace Fabrica.Watch
         public static void Error(this ILogger logger, string template, params object?[] args) { }
         public static void Error(this ILogger logger, Exception ex, string template, params object?[] args) { }
         public static void ErrorWithContext(this ILogger logger, Exception ex, object context, object? message = null) { }
+
+        // Template overloads renamed, as fabrica-one's copy of Fabrica.Watch has them.
+        public static void DebugFormat(this ILogger logger, string template, params object?[] args) { }
+        public static void WarningFormat(this ILogger logger, string template, params object?[] args) { }
+
+        // Overloads without an exception, as fabrica-one's copy of Fabrica.Watch adds them.
+        public static void InfoWithContext(this ILogger logger, object context, string message) { }
+        public static void WarningWithContext(this ILogger logger, object context, string message) { }
+        public static void ErrorWithContext(this ILogger logger, object context, string message) { }
 
         public static void EnterMethod(this ILogger logger, [CallerMemberName] string name = "") { }
         public static void LeaveMethod(this ILogger logger, [CallerMemberName] string name = "") { }
@@ -100,6 +110,12 @@ namespace Fabrica.Watch
 
     [AttributeUsage(AttributeTargets.Property)]
     public class SensitiveAttribute : Attribute { }
+
+    // An API a copy of Fabrica.Watch adds, which no rule knows: fabrica-one's correlation scope.
+    public static class WatchCorrelation
+    {
+        public static IDisposable Begin(string id) => null!;
+    }
 
     public class WatchFactoryBuilder
     {

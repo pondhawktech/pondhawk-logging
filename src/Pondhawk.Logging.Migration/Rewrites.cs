@@ -39,6 +39,9 @@ internal static class Rewrites
         if (diagnostic.Id is "PHLM006" or "PHLM007")
             return Tracing(node, model, newLine, cancellationToken);
 
+        if (diagnostic.Id is "PHLM020")
+            return Events.For(node, model, newLine, cancellationToken);
+
         var invocation = node is InvocationExpressionSyntax ? model.GetOperation(node, cancellationToken) as IInvocationOperation : null;
         Rewriter? rewrite = diagnostic.Id switch
         {
@@ -130,39 +133,38 @@ internal static class Rewrites
         };
     }
 
-    // ErrorWithContext gets a string message; WarningWithContext becomes LogObject + LogWarning.
+    // ErrorWithContext(exception, context) gets a string message; any other …WithContext becomes LogObject + LogX.
     private static Rewriter? Context(IInvocationOperation? invocation, SemanticModel model)
     {
-        if (invocation is null)
+        if (invocation is null || ContextCall.Match(invocation) is not { } call)
             return null;
 
         var original = (InvocationExpressionSyntax)invocation.Syntax;
-        var exception = FabricaWatch.Written(FabricaWatch.Argument(invocation, 1));
-        var state = FabricaWatch.Written(FabricaWatch.Argument(invocation, 2));
-        var message = FabricaWatch.Argument(invocation, 3);
-        var warning = string.Equals(FabricaWatch.Declared(invocation).Name, "WarningWithContext", StringComparison.Ordinal);
+        var exception = FabricaWatch.Written(call.Exception);
+        var state = FabricaWatch.Written(call.Context);
 
         return (current, context) =>
         {
             var now = (InvocationExpressionSyntax)current;
             var messages = new Messages(model, original, now, context);
-            var (exceptionText, stateText) = (messages.Current(exception)!, messages.Current(state)!);
+            var (exceptionText, stateText) = (messages.Current(exception), messages.Current(state)!);
 
-            if (!warning)
-                return Renamed(now, "ErrorWithContext", [exceptionText, stateText, ErrorMessage(message, exception, messages, context)]);
+            if (string.Equals(call.Level, "Error", StringComparison.Ordinal) && exceptionText is not null)
+                return Renamed(now, "ErrorWithContext", [exceptionText, stateText, ErrorMessage(call.Message, exception, messages, context)]);
 
             var logger = ((MemberAccessExpressionSyntax)now.Expression).Expression.ToString();
-            var kind = message is null ? MessageKind.None : LevelCall.KindOf(message);
-            var logWarning = logger + ".LogWarning(" + string.Join(", ", new[] { exceptionText }.Concat(messages.Simple(message, kind, exception))) + ")";
+            var kind = call.Message is null ? MessageKind.None : LevelCall.KindOf(call.Message);
+            var arguments = (exceptionText is null ? [] : new[] { exceptionText }).Concat(messages.Simple(call.Message, kind, exception));
+            var log = logger + "." + call.Method + "(" + string.Join(", ", arguments) + ")";
+            var logContext = logger + ".LogObject(" + Logging + "LogLevel." + call.Level + ", \"Context\", " + stateText + ")";
 
             if (!context.IsStatement)
             {
-                context.Todo("the context object is no longer logged; log it with LogObject(LogLevel.Warning, \"Context\", …)");
-                return SyntaxFactory.ParseExpression(logWarning);
+                context.Todo($"the context object is no longer logged; log it with LogObject(LogLevel.{call.Level}, \"Context\", {stateText})");
+                return SyntaxFactory.ParseExpression(log);
             }
 
-            var logContext = logger + ".LogObject(" + Logging + "LogLevel.Warning, \"Context\", " + stateText + ")";
-            var block = "{" + context.NewLine + logContext + ";" + context.NewLine + logWarning + ";" + context.NewLine + "}";
+            var block = "{" + context.NewLine + logContext + ";" + context.NewLine + log + ";" + context.NewLine + "}";
             return SyntaxFactory.ParseStatement(block).WithAdditionalAnnotations(Formatter.Annotation);
         };
     }
@@ -298,7 +300,18 @@ internal static class Rewrites
                 .Select(i => ((MemberAccessExpressionSyntax)i.Expression).Expression.ToString()),
             StringComparer.Ordinal);
 
-        return (body, current => new Tracing(loggers, new RewriteContext(isStatement: false, newLine)).Rewrite((BlockSyntax)current));
+        // using var logger = this.GetLogger(); — a using with nothing to dispose once the logger is migrated.
+        var undisposed = new HashSet<string>(
+            body.DescendantNodes()
+                .Where(d => Disposal.IsNeedless(d, model, cancellationToken))
+                .Select(d => Disposal.Disposed(d)!.Variables[0].Identifier.ValueText),
+            StringComparer.Ordinal);
+
+        // logger.Dispose(); on a plain logger — nothing to dispose once it is migrated.
+        foreach (var statement in body.DescendantNodes().OfType<ExpressionStatementSyntax>().Where(s => Disposal.IsNeedlessDispose(s, model, cancellationToken)))
+            undisposed.Add(((MemberAccessExpressionSyntax)((InvocationExpressionSyntax)statement.Expression).Expression).Expression + ".Dispose()");
+
+        return (body, current => new Tracing(loggers, undisposed, new RewriteContext(isStatement: false, newLine)).Rewrite((BlockSyntax)current));
     }
 
     private static readonly string[] TracingMethods = ["EnterMethod", "LeaveMethod", "EnterScope", "LeaveScope"];

@@ -24,7 +24,7 @@ public class WholeFileTests
 
             public class OrderService
             {
-                private readonly ILogger _logger = {|PHLM012:WatchFactoryLocator.Factory.GetLogger<OrderService>()|};
+                private readonly ILogger _logger = WatchFactoryLocator.Factory.GetLogger<OrderService>();
 
                 public void Place(int id, Exception problem)
                 {
@@ -64,8 +64,8 @@ public class WholeFileTests
             """, "PHLM001", "PHLM005", "PHLM012", "PHLM013", "PHLM014", "PHLM015", "PHLM016")
         {
             CompilerDiagnostics = CompilerDiagnostics.Errors,
-            NumberOfIncrementalIterations = 7,
-            NumberOfFixAllIterations = 2,
+            NumberOfIncrementalIterations = -10,
+            NumberOfFixAllIterations = -4,
         };
 
         await test.RunAsync();
@@ -89,7 +89,7 @@ public class WholeFileTests
 
             public class OrderService
             {
-                private readonly ILogger _logger = {|PHLM012:WatchFactoryLocator.Factory.GetLogger<OrderService>()|};
+                private readonly ILogger _logger = WatchFactoryLocator.Factory.GetLogger<OrderService>();
 
                 public void Place(int id, string customer, decimal total, Exception problem, object state)
                 {

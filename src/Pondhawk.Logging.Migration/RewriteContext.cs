@@ -43,7 +43,8 @@ internal sealed class RewriteContext(bool isStatement, string newLine)
         var leading = statement.GetLeadingTrivia();
         var indent = leading.LastOrDefault(t => t.IsKind(SyntaxKind.WhitespaceTrivia));
         var added = new List<SyntaxTrivia>();
-        foreach (var todo in _todos)
+        var present = leading.ToFullString();
+        foreach (var todo in _todos.Where(t => !present.Contains(Marker + t)))
         {
             added.Add(SyntaxFactory.Comment("// " + Marker + todo));
             added.Add(SyntaxFactory.EndOfLine(NewLine));

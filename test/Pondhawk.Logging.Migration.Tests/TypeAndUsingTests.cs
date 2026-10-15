@@ -152,4 +152,39 @@ public class TypeAndUsingTests
                 private ILogger _logger;
             }
             """, "PHLM015");
+
+    // Found in fabrica-one: a base class's protected ILogger EnterMethod() is called from other files. Swapping its
+    // usings first would change the type under them before their calls are rewritten.
+    [Theory]
+    [InlineData("protected ILogger EnterMethod() => null;")]
+    [InlineData("public ILogger Logger { get; }")]
+    [InlineData("internal System.Threading.Tasks.Task<ILogger> Next() => null;")]
+    [InlineData("public void Use(ILogger logger) { }")]
+    public Task A_file_that_hands_out_Fabrica_Watch_loggers_keeps_its_usings(string member) =>
+        MigrationTest.NoneAsync($$"""
+            using Fabrica.Watch;
+
+            public abstract class CorrelatedObject
+            {
+                {{member}}
+            }
+            """, "PHLM015");
+
+    [Fact]
+    public Task A_private_logger_field_does_not_keep_the_usings() =>
+        MigrationTest.RunAsync("""
+            {|PHLM015:using Fabrica.Watch;|}
+
+            public class Orders
+            {
+                private ILogger _logger;
+            }
+            """, """
+            using Microsoft.Extensions.Logging;
+
+            public class Orders
+            {
+                private ILogger _logger;
+            }
+            """, "PHLM015");
 }

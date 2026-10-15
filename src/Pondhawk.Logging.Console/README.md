@@ -1,8 +1,8 @@
 # Pondhawk.Logging.Console
 
 A ZLogger-based `Microsoft.Extensions.Logging` console optimized for **systemd-journald**, for Linux
-production services. Each line is written for journald to parse, and the console is **fixed at Warning**
-so only warnings, errors, and critical events surface.
+production services. Each line is written for journald to parse, and the console is **at Warning by default**
+so only warnings, errors, and critical events surface — or from a floor you choose.
 
 ## What "journald-optimized" means
 
@@ -42,5 +42,12 @@ Output captured by journald:
 <3>OrderService: failed to load order 42 | System.InvalidOperationException: not found | at ...
 ```
 
-Fixed at Warning — nothing below Warning reaches this console. Pair it with
+At Warning by default — nothing below Warning reaches this console. A service whose journal is its record of
+routine work, or a command-line tool whose output is a CI job's log, can set its own floor:
+
+```csharp
+builder.Logging.AddJournaldConsole(LogLevel.Information);
+```
+
+The floor is this console's alone; it does not change what any other provider keeps. Pair it with
 [`Pondhawk.Logging.Watch`](../Pondhawk.Logging.Watch/README.md) for the rich, switch-driven developer view.

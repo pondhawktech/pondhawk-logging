@@ -37,6 +37,7 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
         Rules.ContextCall.Id,
         Rules.InspectName.Id,
         Rules.Pretty.Id,
+        Rules.Events.Id,
         Rules.FactoryLocator.Id,
         Rules.ObjectExtension.Id,
         Rules.SharedType.Id,
@@ -48,17 +49,22 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
         FixAllProvider.Create((context, document, diagnostics) => ApplyAsync(document, diagnostics, context.CancellationToken)!);
 
     /// <inheritdoc />
-    public override Task RegisterCodeFixesAsync(CodeFixContext context)
+    public override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
+        var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+        var model = await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+
         foreach (var diagnostic in context.Diagnostics)
         {
+            if (string.Equals(diagnostic.Id, Rules.Events.Id, StringComparison.Ordinal)
+                && (root is null || model is null || Rewrites.For(diagnostic, root, model, "\n", context.CancellationToken) is null))
+                continue;   // an event this cannot rewrite stays reported only
+
             var title = string.Equals(diagnostic.Id, Rules.Usings.Id, StringComparison.Ordinal) ? "Replace the Fabrica.Watch usings" : "Rewrite for Microsoft.Extensions.Logging and Pondhawk.Logging";
             context.RegisterCodeFix(
                 CodeAction.Create(title, ct => ApplyAsync(context.Document, ImmutableArray.Create(diagnostic), ct), equivalenceKey: diagnostic.Id),
                 diagnostic);
         }
-
-        return Task.CompletedTask;
     }
 
     private static async Task<Document> ApplyAsync(Document document, ImmutableArray<Diagnostic> diagnostics, CancellationToken cancellationToken)
@@ -72,14 +78,22 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
         if (newLine.Length == 0)
             newLine = "\n";
 
-        var rewrites = new Dictionary<SyntaxNode, Func<SyntaxNode, SyntaxNode>>();
+        // One rewrite per node and kind: a block can be both a traced function's body and hold an event pair, so
+        // different kinds on one node are composed; the same kind twice (two diagnostics in one body) runs once.
+        var rewrites = new Dictionary<SyntaxNode, (HashSet<string> Kinds, Func<SyntaxNode, SyntaxNode> Rewrite)>();
         foreach (var diagnostic in diagnostics)
         {
-            if (Rewrites.For(diagnostic, root, model, newLine, cancellationToken) is { } found)
-                rewrites[found.Node] = found.Rewrite;
+            if (Rewrites.For(diagnostic, root, model, newLine, cancellationToken) is not { } found)
+                continue;
+
+            var kind = diagnostic.Id is "PHLM006" or "PHLM007" ? "tracing" : diagnostic.Id;
+            if (!rewrites.TryGetValue(found.Node, out var existing))
+                rewrites[found.Node] = (new HashSet<string>(StringComparer.Ordinal) { kind }, found.Rewrite);
+            else if (existing.Kinds.Add(kind))
+                rewrites[found.Node] = (existing.Kinds, current => found.Rewrite(existing.Rewrite(current)));
         }
 
-        var rewritten = root.ReplaceNodes(rewrites.Keys, (original, current) => rewrites[original](current));
+        var rewritten = root.ReplaceNodes(rewrites.Keys, (original, current) => rewrites[original].Rewrite(current));
 
         var swap = diagnostics.Any(d => string.Equals(d.Id, Rules.Usings.Id, StringComparison.Ordinal));
         rewritten = UsingSwap.Apply(rewritten, swap, HasGlobalFabricaUsing(model.Compilation));

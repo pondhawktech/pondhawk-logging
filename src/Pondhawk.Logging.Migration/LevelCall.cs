@@ -81,9 +81,14 @@ internal sealed class LevelCall
     public static LevelCall? Match(IInvocationOperation invocation)
     {
         var declared = FabricaWatch.Declared(invocation);
-        var level = Levels.FirstOrDefault(l => string.Equals(l.Fabrica, declared.Name, StringComparison.Ordinal));
+
+        // Some copies of Fabrica.Watch name the template overloads DebugFormat, WarningFormat, ….
+        var name = declared.Name.EndsWith("Format", StringComparison.Ordinal) ? declared.Name.Substring(0, declared.Name.Length - "Format".Length) : declared.Name;
+        var level = Levels.FirstOrDefault(l => string.Equals(l.Fabrica, name, StringComparison.Ordinal));
         if (level.Fabrica is null || !FabricaWatch.Calls(invocation, FabricaWatch.LoggerExtensions, declared.Name))
             return null;
+
+        level.Fabrica = declared.Name;
 
         var parameters = declared.Parameters;
         var exceptionFirst = parameters.Length > 2 && IsException(parameters[1].Type);
