@@ -211,4 +211,17 @@ public class TracingTests
                     Save();
                     logger.Dispose();
             """), "PHLM006");
+
+    // Found in fabrica-one: the body of a using statement is not a block, and a rule rewrites it too.
+    [Fact]
+    public Task A_using_statement_whose_body_is_one_rewritten_call_keeps_the_call() =>
+        MigrationTest.RunAsync(Code("""
+                    {|PHLM006:using( var started = this.GetLogger() )
+                        {|PHLM002:started.Info("Deploying mission ({0})", count)|};|}
+            """), Code("""
+                    {
+                        var started = this.GetLogger();
+                        started.LogInformation("Deploying mission ({Count})", count);
+                    }
+            """), "PHLM006", "PHLM002");
 }
