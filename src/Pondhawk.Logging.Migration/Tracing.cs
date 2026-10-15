@@ -78,7 +78,11 @@ internal sealed class Tracing(HashSet<string> loggers, HashSet<string> undispose
 
         var inner = (StatementSyntax)Visit(node.Statement)!;
         var statements = new List<StatementSyntax> { SyntaxFactory.LocalDeclarationStatement(declaration.WithoutTrivia()) };
-        statements.AddRange(inner is BlockSyntax block ? block.Statements : [inner]);
+        // Not a collection expression: as a SyntaxList it would call the immutable Add and keep nothing.
+        if (inner is BlockSyntax block)
+            statements.AddRange(block.Statements);
+        else
+            statements.Add(inner);
 
         return SyntaxFactory.Block(statements).WithTriviaFrom(node).WithAdditionalAnnotations(Formatter.Annotation);
     }
