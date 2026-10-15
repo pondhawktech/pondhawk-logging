@@ -58,6 +58,30 @@ public class MethodLoggerTests
     }
 
     [Fact]
+    public void Dispose_WhenDebugTurnedOffAfterEntry_StillLogsExit()
+    {
+        var inner = new SwitchableLogger { Enabled = true };
+
+        var method = inner.EnterMethod();
+        inner.Enabled = false;
+        method.Dispose();
+
+        inner.Logged.ShouldBe([(LogLevel.Debug, 1), (LogLevel.Debug, -1)]);
+    }
+
+    [Fact]
+    public void Dispose_WhenEntryWasNotLogged_LogsNoExit()
+    {
+        var inner = new SwitchableLogger { Enabled = false };
+
+        var method = inner.EnterMethod();
+        inner.Enabled = true;
+        method.Dispose();
+
+        inner.Logged.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void MethodLogger_DoubleDispose_LogsExitOnlyOnce()
     {
         var inner = new CollectingLogger();
@@ -67,5 +91,23 @@ public class MethodLoggerTests
         method.Dispose();
 
         inner.Entries.Count(e => e.Message.StartsWith("Exiting")).ShouldBe(1);
+    }
+
+    // Records every call, whatever IsEnabled says, so a test sees what MethodLogger asks for.
+    private sealed class SwitchableLogger : ILogger
+    {
+        public bool Enabled { get; set; }
+
+        public List<(LogLevel Level, object Nesting)> Logged { get; } = [];
+
+        public bool IsEnabled(LogLevel logLevel) => Enabled;
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        {
+            var properties = state as IReadOnlyList<KeyValuePair<string, object>> ?? [];
+            Logged.Add((logLevel, properties.FirstOrDefault(p => p.Key == LogPropertyNames.Nesting).Value));
+        }
     }
 }

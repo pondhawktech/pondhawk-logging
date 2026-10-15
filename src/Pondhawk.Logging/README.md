@@ -14,7 +14,7 @@ Fully standalone — no dependency on other Pondhawk packages. Targets `net8.0`.
 Extensions on `ILogger` (`using Microsoft.Extensions.Logging;` for the logger, `using Pondhawk.Logging;`
 for these):
 
-- **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time
+- **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time, at Debug
 - **`ILogger.Inspect(name, value)`** — logs a name/value pair as `"{Name} = {Value}"` at Debug level
 - **`ILogger.LogObject(value)`** / **`LogObject(title, value)`** — serializes an object to a JSON payload at Trace
 - **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints, at Debug

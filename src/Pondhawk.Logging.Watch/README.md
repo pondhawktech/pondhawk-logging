@@ -92,7 +92,7 @@ public class OrderService
 public async Task ProcessAsync(int orderId)
 {
     using var _ = _logger.EnterMethod();
-    // Logs "Entering ProcessAsync" at Trace level (the category comes from the logger)
+    // Logs "Entering ProcessAsync" at Debug level (the category comes from the logger)
     // On dispose: "Exiting ProcessAsync (elapsed ms)"
 }
 ```

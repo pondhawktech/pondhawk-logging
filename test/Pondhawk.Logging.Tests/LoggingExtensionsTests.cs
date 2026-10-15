@@ -280,14 +280,28 @@ public class LoggingExtensionsTests
         var exit = logger.Entries[1];
 
         entry.Message.ShouldBe("Entering " + nameof(EnterMethod_LogsEntryAndExit_WithNesting));
+        entry.Level.ShouldBe(LogLevel.Debug);
         CollectingLogger.Prop(entry, LogPropertyNames.Nesting).ShouldBe(1);
 
         exit.Message.ShouldStartWith("Exiting " + nameof(EnterMethod_LogsEntryAndExit_WithNesting));
+        exit.Level.ShouldBe(LogLevel.Debug);
         CollectingLogger.Prop(exit, LogPropertyNames.Nesting).ShouldBe(-1);
     }
 
     [Fact]
-    public void EnterMethod_WhenTraceDisabled_LogsNoTrace()
+    public void EnterMethod_WhenDebugEnabledAndTraceNot_LogsEntryAndExit()
+    {
+        var logger = new CollectingLogger(LogLevel.Debug);
+
+        using (logger.EnterMethod())
+        {
+        }
+
+        logger.Entries.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void EnterMethod_WhenDebugDisabled_LogsNothing()
     {
         var logger = new CollectingLogger(LogLevel.Information);
 

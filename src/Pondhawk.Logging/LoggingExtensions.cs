@@ -29,25 +29,26 @@ public static class LoggingExtensions
     private const LogLevel DefaultObjectLevel = LogLevel.Trace;
 
     /// <summary>
-    /// Creates a disposable method-tracing scope: logs entry at <see cref="LogLevel.Trace"/> and logs exit
-    /// with elapsed time on dispose. The returned <see cref="MethodLogger"/> is itself an
-    /// <see cref="ILogger"/> and can be used as the logger for the method body.
+    /// Creates a disposable method-tracing scope: logs entry at <see cref="LogLevel.Debug"/> and logs exit,
+    /// with elapsed time, at <see cref="LogLevel.Debug"/> on dispose. The exit is logged whenever the entry
+    /// was, so the two pair up. The returned <see cref="MethodLogger"/> is itself an <see cref="ILogger"/>
+    /// and can be used as the logger for the method body.
     /// </summary>
     /// <param name="logger">The logger to trace with.</param>
     /// <param name="method">The calling method name (auto-populated by the compiler).</param>
     /// <returns>A disposable <see cref="MethodLogger"/> that also implements <see cref="ILogger"/>.</returns>
     public static MethodLogger EnterMethod(this ILogger logger, [CallerMemberName] string method = "")
     {
-        var tracing = logger.IsEnabled(LogLevel.Trace);
+        var entered = logger.IsEnabled(MethodLogger.Level);
 
-        if (tracing)
+        if (entered)
         {
             var properties = new KeyValuePair<string, object?>[] { new(LogPropertyNames.Nesting, 1) };
             var state = new LogState("Entering " + method, properties);
-            logger.Log(LogLevel.Trace, default, state, null, LogState.Formatter);
+            logger.Log(MethodLogger.Level, default, state, null, LogState.Formatter);
         }
 
-        return new MethodLogger(logger, method, tracing);
+        return new MethodLogger(logger, method, entered);
     }
 
     /// <summary>

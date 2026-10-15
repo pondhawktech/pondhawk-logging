@@ -49,6 +49,12 @@ removes the most visible behavioural difference for migrating applications.
   was, with **no second level check at exit** — today `Dispose` re-checks `IsEnabled`, so a switch
   lowered while the method runs leaves the entry's `Pondhawk.Nesting` +1 without its −1. If the entry
   was suppressed, no exit is written.
+- **Limit (found while implementing).** That removes only `MethodLogger`'s own check.
+  Microsoft.Extensions.Logging applies its filters again on every `Log` call, and a Watch switch is one of
+  them, so a switch lowered while the method runs still drops the exit. The API cannot get past the
+  pipeline. Decided: accept it. Watch's call tree tolerates an entry without its exit — that one
+  correlation's tree sits a level deep, every event still shows
+  (`watch-server/docs/plans/2026-10-15-mel-level-names.md` §8).
 - `object.EnterMethod()` (`ObjectLoggingExtensions`) inherits the change.
 - Update XML docs on `EnterMethod`, `MethodLogger`, and the `LogObject` remarks that compare levels.
 
@@ -245,11 +251,83 @@ package instead, without losing anything it relied on.
    CS0121. Not a reason to rename — the Fabrica middleware is being removed — but the migration guide
    says to delete the Fabrica registrations in the same change, or call this package's methods through
    `DiagnosticsApplicationBuilderExtensions` explicitly while both exist.
-6. **Per-request debug elevation.** Fabrica let a request header raise one request's logging to Debug.
-   This package deliberately has no equivalent; the guide says to use Watch switches and to remove the
-   header handling (any caller could send it).
+6. **Per-request elevation — the diagnostic probe.** Fabrica let any caller raise a request's logging by
+   sending `X-Diagnostics-Probe: 1`. It returns here as a **signed probe token** issued by Watch Server —
+   designed below.
 
 Any code change here is a minor version bump of `Pondhawk.Logging.AspNetCore`.
+
+### Diagnostic probe
+
+**What it is for.** Support, in production, turns logging up for one user's requests without touching
+the switch table. Support issues a token in Watch Server; the user's client sends it on every request
+until it expires, or support rotates the domain's key in Watch. Fabrica did this with `X-Diagnostics-Probe: 1`
+(`Fabrica.Api.Support/Middleware/DiagnosticsMonitorMiddleware.cs`): any caller could send it, so any
+caller could make a server log more — and, with the request dump, log their requests' bodies. Here the
+header carries a token only Watch Server can make. The end user needs no role.
+
+**The token.** Issued by Watch Server for one domain
+(`watch-server/docs/plans/2026-10-15-diagnostic-probe-tokens.md`): a payload — version, token id, domain,
+optional subject name, expiry — and an **ECDSA P-256** signature over it, each base64url, joined by a dot. Watch
+holds the private key, one key pair per domain; the application gets the **public key** with its
+switches, so it holds no secret and the domain needs no API key. A token **bound to a user** lasts up to
+4 hours; an **unbound** one (for a user who cannot sign in, whose subject is `anonymous`) up to 1 hour.
+There is no revocation list: tokens are short, and rotating the domain's key pair in Watch invalidates
+every token it signed. The token id (`i`) is only for matching a refusal here to the issue in Watch's
+audit trail; it is not checked against anything.
+
+Watch keeps the private key in its configuration database in the clear (decided 2026-10-15: whoever could
+read it could only raise logging that lands in Watch). Watch's limits apply only when it issues, so the
+application **caps the expiry itself**: a token whose expiry is more than 4 hours away is refused,
+whatever its signature, and a forged token stops within 4 hours.
+
+**Where each part lives.**
+- **`Pondhawk.Logging`** — the probe flag: `DiagnosticProbe`, set on and read from the request's
+  `Activity` as a custom property (never baggage, so it is never sent on an outbound call), and an
+  `IDiagnosticProbeKey` interface — the current domain name and public key, or none.
+- **`Pondhawk.Logging.Watch`** — `AddWatch` registers an `IDiagnosticProbeKey` backed by the switch
+  poll: `SwitchesResponse` gains the domain's probe public key, kept with the switch table and replaced
+  on a rebind. The **switch filter** honours the flag: a probed request passes at **Trace** whatever the
+  switch says (`level >= (probed ? Trace : switch level)`), and its events carry the tag "Diagnostics".
+  CloudWatch and the journald console keep their own floors.
+- **`Pondhawk.Logging.AspNetCore`** — validation, in the middlewares that already run per request:
+  - **Monitor**: reads `options.ProbeHeader` (default `X-Diagnostics-Probe`, the same header Fabrica
+    clients send). Rejects a value over 1 KB unparsed; checks the signature against the key from
+    `IDiagnosticProbeKey`, the token's domain against the key's domain, and the expiry — not past, and
+    not more than 4 hours away (a minute's allowance for clock skew either way). An **unbound** token sets the flag here, so the `Begin` line is probed.
+  - **Enrichment**: a **bound** token is checked against `IOperationContext.SubjectName`, without regard
+    to case, and sets the flag from here on — the endpoint, everything it calls, and the `End` line.
+  - Off when no `IDiagnosticProbeKey` is registered (no Watch provider) or `options.Probe` is false.
+- **The request dump follows by itself.** `UseRequestLogging` runs when `Pondhawk.Diagnostics.Http` is
+  Debug-enabled; under a probe the switch filter enables every category at Trace, so a probed request is
+  dumped — headers and bodies, with the usual masking — even when that category's switch is off.
+
+**A refused token** — malformed, a payload version other than 1, no probe key from Watch yet (a token
+used at once on a domain's first issue, before the next switch poll brings the key), bad signature, other
+domain, expired, expiry beyond 4 hours, other user (Fabrica's plain `1` included) — is ignored, and the
+request goes on **exactly as if no probe had been offered**: no exception, no change to the status,
+headers or body, nothing for the endpoint to see. Checking a token never throws — a parse, base64, JSON
+or cryptographic failure is caught and is one more refusal reason. The refusal is logged at Warning under
+`Pondhawk.Diagnostics.Http` **once per distinct token per process** (a bounded cache of recent refusals),
+at Debug after that, so a client still sending an expired token does not log a Warning per request. The
+Warning names the token id when the token parsed, so support can find the issue in Watch's audit trail.
+
+**Tests**: a valid unbound token probes from the monitor (the `Begin` line at Trace); a valid bound token
+probes from enrichment for its user and not for another; expired, too-distant expiry (over 4 hours), tampered,
+other-domain, oversized, non-base64, non-JSON and Fabrica-style `1` values are refused, with one Warning
+each however many requests carry them, and each such request gets the same response as one with no probe
+header; the flag
+never reaches an outbound request; a probed request is dumped with the dump switch off; the filter passes
+Trace for a probed request only; no probe without an `IDiagnosticProbeKey`; a rebind replaces the key; a
+token refused for want of a key is accepted once a poll delivers it; a failed poll keeps the last key.
+
+**Delivery to the user (decided 2026-10-15): copy and paste.** The token is about 200–230 characters
+(the signature alone is 86). Support copies it from Watch and sends it by chat or email, or enters it
+during a remote session; the client needs a support setting to paste it into, and sends it on every
+request until it is cleared or expires.
+
+**Migration guide**: Fabrica clients keep the header name; support issues a token in Watch instead of
+setting `1`, and the client sends the token.
 
 ---
 

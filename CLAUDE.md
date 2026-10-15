@@ -44,7 +44,7 @@ Five packages: the logging API, a Watch Server provider, a journald-optimized co
 The structured logging API on `Microsoft.Extensions.Logging`. No sink, no transport — provider packages (e.g. `Pondhawk.Logging.Watch`) build on it. Application code logs through the standard `ILogger`, so an app can drop this package and fall back to plain MEL with a configuration change and no code edits.
 
 - **Logging API** (`Pondhawk.Logging` namespace): `LoggingExtensions` provides extensions on `ILogger`:
-  - **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time
+  - **`ILogger.EnterMethod()`** — disposable method-tracing scope with automatic entry/exit logging and elapsed time (Debug)
   - **`ILogger.Inspect(name, value)`** — logs a name/value pair as `"{Name} = {Value}"` at Debug level
   - **`ILogger.LogObject(value)`** — serializes an object to a JSON payload (Trace)
   - **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints (Debug)
