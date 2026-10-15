@@ -23,7 +23,7 @@ namespace Pondhawk.Logging.Watch;
 /// Thread-safety: All operations are thread-safe. Polling runs on a background task.
 /// </para>
 /// </remarks>
-public class WatchSwitchSource : SwitchSource, IAsyncDisposable
+public class WatchSwitchSource : SwitchSource, IDiagnosticProbeKey, IAsyncDisposable
 {
     private readonly HttpClient _client;
     private readonly WatchDestination _destination;
@@ -39,6 +39,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     // 304 Not Modified when nothing changed, letting us skip both the download and the rebuild. It belongs
     // to the destination binding it was fetched under, so a rebind discards it.
     private string? _lastETag;
+
+    // The domain's diagnostic probe key, delivered with the switches. Kept through a failed poll and a 304,
+    // dropped on a rebind: a key belongs to the domain it came from.
+    private DiagnosticProbeKey? _probeKey;
     private long _eTagBindingVersion;
 
     /// <summary>
@@ -131,6 +135,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
             {
                 _eTagBindingVersion = binding.Version;
                 _lastETag = null;
+                Volatile.Write(ref _probeKey, null);
             }
 
             // Nothing to poll until a server is named. The switch table keeps the defaults AddWatch gave it,
@@ -165,6 +170,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
                 }).ToList();
 
                 Update(defs);
+                Volatile.Write(ref _probeKey, ProbeKeyOf(payload.ProbeKey, binding.Domain));
 
                 // Only remember the ETag once the corresponding switches are actually applied, so a
                 // mid-parse failure doesn't leave us claiming to hold a set we never installed.
@@ -175,6 +181,21 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
         {
             // Silently ignore failures — will retry on next poll
         }
+    }
+
+    /// <inheritdoc />
+    DiagnosticProbeKey? IDiagnosticProbeKey.Current => Volatile.Read(ref _probeKey);
+
+    // A key that is not base64 is no key: a probe token cannot be checked against it, so none is accepted.
+    private static DiagnosticProbeKey? ProbeKeyOf(string? encoded, string domain)
+    {
+        if (string.IsNullOrEmpty(encoded))
+            return null;
+
+        var bytes = new byte[encoded.Length];
+        return Convert.TryFromBase64String(encoded, bytes, out var written)
+            ? new DiagnosticProbeKey(domain, bytes.AsMemory(0, written))
+            : null;
     }
 
     private async Task PollLoopAsync(CancellationToken ct)

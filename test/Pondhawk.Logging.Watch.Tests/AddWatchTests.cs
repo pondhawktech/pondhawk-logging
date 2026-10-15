@@ -1,6 +1,7 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -53,6 +54,42 @@ public class AddWatchTests
 
         factory.CreateLogger("Silenced.Component").IsEnabled(LogLevel.Critical).ShouldBeFalse();
         factory.CreateLogger("Other.Component").IsEnabled(LogLevel.Critical).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SwitchFilter_PassesEveryLevel_ForAProbedRequestOnly()
+    {
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.None);
+
+        var factory = BuildFactory(switches);
+        var logger = factory.CreateLogger("Orders.Service");
+
+        logger.IsEnabled(LogLevel.Trace).ShouldBeFalse();
+
+        using (new Activity("probed request").Start())
+        {
+            DiagnosticProbe.Begin();
+
+            logger.IsEnabled(LogLevel.Trace).ShouldBeTrue();
+            logger.IsEnabled(LogLevel.None).ShouldBeFalse();
+        }
+
+        using (new Activity("next request").Start())
+            logger.IsEnabled(LogLevel.Trace).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AddWatch_RegistersTheProbeKeySource()
+    {
+        var destination = new WatchDestination("http://127.0.0.1:9/D");
+
+        var services = new ServiceCollection();
+        services.AddLogging(b => b.AddWatch(destination, o => o.PollInterval = TimeSpan.FromMinutes(5)));
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetService<IDiagnosticProbeKey>().ShouldNotBeNull();
     }
 
     [Fact]

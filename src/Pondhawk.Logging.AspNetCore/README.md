@@ -231,6 +231,32 @@ copied.
 | `CaptureResponseBody` | `false` | True keeps a copy of a text response body for the dump. |
 | `MaxBodyBytes` | 65536 | How much of a body, request or response, is written; at most 1 MB. |
 | `EndLevelByOutcome` | `false` | Log the monitor's End line at Information, Warning for 401/403/429 and Error for 5xx, instead of Debug. |
+| `Probe` | `true` | Honour a diagnostic probe token. Only ever accepted when a provider supplies the key (the Watch provider does). |
+| `ProbeHeader` | `X-Diagnostics-Probe` | The header a probe token is read from. |
+
+## The diagnostic probe
+
+Support can turn logging up for **one user's requests** in production without touching the switch table.
+Support issues a **probe token** for a domain in Watch Server — bound to a user (up to 4 hours) or unbound,
+for a user who cannot sign in (up to 1 hour) — and the user pastes it into the client's support setting. The
+client sends it on every request in `X-Diagnostics-Probe`, the header Fabrica clients already send. A probed
+request logs at **Trace whatever the switches say**, request dump included, and its events are tagged
+`Diagnostics`.
+
+The token is signed by Watch with a key only Watch holds; the application checks it against the domain's
+public key, which the Watch provider receives with its switches. So the end user needs no role, the
+application holds no secret, and nobody else can make one. An unbound token probes the request from the
+monitor on; a bound one from enrichment on, once the caller is known, and only for that user (compared
+without regard to case).
+
+**A token that fails any check is ignored**: the request goes on exactly as if none had been sent — no
+exception, no change to the response. The refusal is logged at Warning, naming the token's id where it can be
+read so support can find the issue in Watch, and once per token: a client still sending an expired one logs
+a Warning once, then Debug.
+
+Without the Watch provider there is no key, and the header is ignored. `options.Probe = false` turns the probe
+off. Like the correlation id, the probe attaches to the request's `Activity`; it is never sent on to the
+services the request calls.
 
 ## The category
 

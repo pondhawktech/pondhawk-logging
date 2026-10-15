@@ -503,4 +503,70 @@ public class WatchSwitchSourceTests
         source.Version.ShouldBe(v1 + 1);
     }
 
+    // --- Diagnostic probe key ---
+
+    private static StringContent SwitchesWithProbeKey(string probeKey)
+    {
+        var json = JsonSerializer.Serialize(new SwitchesResponse { ProbeKey = probeKey });
+        return new StringContent(json, Encoding.UTF8, "application/json");
+    }
+
+    [Fact]
+    public async Task UpdateAsync_KeepsTheDomainsProbeKey()
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, SwitchesWithProbeKey(Convert.ToBase64String([1, 2, 3])));
+        var source = new WatchSwitchSource(CreateClient(handler), "my-domain");
+
+        await source.UpdateAsync();
+
+        var key = ((IDiagnosticProbeKey)source).Current.ShouldNotBeNull();
+        key.Domain.ShouldBe("my-domain");
+        key.PublicKey.ToArray().ShouldBe(new byte[] { 1, 2, 3 });
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not base64!")]
+    public async Task UpdateAsync_WithNoUsableProbeKey_HasNone(string probeKey)
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, SwitchesWithProbeKey(probeKey));
+        var source = new WatchSwitchSource(CreateClient(handler), "my-domain");
+
+        await source.UpdateAsync();
+
+        ((IDiagnosticProbeKey)source).Current.ShouldBeNull();
+        source.Version.ShouldBe(1);   // the switches still apply
+    }
+
+    [Fact]
+    public async Task UpdateAsync_AFailedPoll_KeepsTheLastProbeKey()
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, SwitchesWithProbeKey(Convert.ToBase64String([1])));
+        var source = new WatchSwitchSource(CreateClient(handler), "my-domain");
+        await source.UpdateAsync();
+
+        handler.RespondWith(HttpStatusCode.InternalServerError);
+        await source.UpdateAsync();
+
+        ((IDiagnosticProbeKey)source).Current.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_AfterRebind_DropsTheOldDomainsProbeKey()
+    {
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, SwitchesWithProbeKey(Convert.ToBase64String([1])));
+        var destination = new WatchDestination("http://first.example/d1");
+        var source = new WatchSwitchSource(new HttpClient(handler), destination);
+        await source.UpdateAsync();
+
+        destination.Rebind("http://second.example/d2");
+        handler.RespondWith(HttpStatusCode.InternalServerError);
+        await source.UpdateAsync();
+
+        ((IDiagnosticProbeKey)source).Current.ShouldBeNull();
+    }
 }
