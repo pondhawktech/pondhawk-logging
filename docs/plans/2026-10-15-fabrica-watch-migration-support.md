@@ -12,7 +12,7 @@ application moving off Fabrica.Watch gets the same tooling and the same result: 
 `Microsoft.Extensions.Logging` code on the Pondhawk.Logging API, with no compatibility layer left
 behind.
 
-Four pieces of work:
+Five pieces of work:
 
 1. **Method tracing at Debug** — a behaviour change in `Pondhawk.Logging`.
 2. **`Pondhawk.Logging.Migration`** — a new, development-only Roslyn analyzer with code fixes that
@@ -20,6 +20,7 @@ Four pieces of work:
 3. **Diagnostics readiness** — confirm `Pondhawk.Logging.AspNetCore` can replace Fabrica's request
    diagnostics middleware, and fix what stops it.
 4. **Documentation fixes** — places where the docs and the code disagree.
+5. **Switch level `None`** — `Pondhawk.Logging.Watch` honours a switch that turns a category off.
 
 Not in scope: Fabrica-style alias methods (`Debug`, `Info`, `Inspect` on `ILogger`) — the earlier
 decision against level-name aliases stands, and the analyzer makes them unnecessary; a MongoDB sink
@@ -174,8 +175,9 @@ commit from step 2 is still purely mechanical and can be reviewed by rule rather
     the ambient `IOperationContext` at `Post()`. How to populate it (`Pondhawk.Logging.AspNetCore`, or
     `Operation.Begin(...)` for background work).
   - Tests: one factory per test assembly (set-once locator); capture through an `ILoggerProvider`.
-  - Switches: moving from the Fabrica Mongo switch collection to Watch Server switches; method flow
-    now visible at Debug (after §1), objects at Trace.
+  - Switches: moving from the Fabrica Mongo switch collection to Watch Server switches, which use
+    MEL's level names (`Quiet` → `None`, §5); method flow now visible at Debug (after §1), objects at
+    Trace.
   - Retention: Fabrica's Mongo sink kept Trace/Debug for hours and Info+ for days; that is now the
     Watch Server's policy.
   - `[Sensitive]` masking now runs through System.Text.Json, not Newtonsoft: types that relied on
@@ -265,9 +267,35 @@ API so no published combination leaves a provider without `Pondhawk.Context`.
 
 ---
 
+## 5. Switch level `None` (`Pondhawk.Logging.Watch`)
+
+Watch Server is standardising on Microsoft.Extensions.Logging's level names and adding `None` (6) as a
+switch level — see `watch-server/docs/plans/2026-10-15-mel-level-names.md`. Pondhawk.Logging already uses
+`LogLevel` throughout (switches, the API, `LogEvent.Level` on the wire), so the names need nothing here;
+only `None` does.
+
+**Change.** `WatchSwitchSource` maps a switch level of 6 to `LogLevel.None`; today it clamps anything above
+`Critical` to `Critical` (`src/Pondhawk.Logging.Watch/WatchSwitchSource.cs:163`). A value above 6 still
+clamps, to `None`. With the switch filter at `None`, `IsEnabled` is false for every level of a matching
+category, so the API skips all work for it.
+
+**Why here.** Fabrica.Watch's `Quiet` maps to `None` (API map, §2), so migrated switch setups need it, and
+the MCP `set_switch` tool can then silence a category instead of holding it at Critical.
+
+**Order.** Independent of the server: a client without this change clamps a `None` switch to Critical
+(nearly off), and this change does nothing until the server sends a 6.
+
+**Tests**: a switch of 6 gives `LogLevel.None` and `IsEnabled` false for Critical; a value above 6 gives
+`None`; 0–5 unchanged.
+
+**Release.** `Pondhawk.Logging.Watch` minor: `3.2` → `3.3`.
+
+---
+
 ## Order and releases
 
-1. §4 documentation fixes and the `Pondhawk.Context` reference move — small, independent.
+1. §4 documentation fixes and the `Pondhawk.Context` reference move — small, independent. §5 (switch
+   level `None`, `Pondhawk.Logging.Watch` 3.3) is equally independent and can go with it.
 2. §1 method tracing at Debug — `Pondhawk.Logging` 3.1, with release notes.
 3. §3 diagnostics readiness — README guidance, plus any fixes (`Pondhawk.Logging.AspNetCore` minor).
 4. §2 migration analyzer — `Pondhawk.Logging.Migration` 1.0 and `MIGRATING-FROM-FABRICA-WATCH.md`;
