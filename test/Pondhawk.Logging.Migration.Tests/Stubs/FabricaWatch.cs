@@ -19,6 +19,10 @@ namespace Fabrica.Watch
         bool IsErrorEnabled { get; }
         string GetCurrentScope();
         void SetCurrentScope(string name);
+        ILogEvent CreateEvent(Level level, object? title);
+        ILogEvent CreateEvent(Level level, object? title, PayloadType type, string? payload);
+        ILogEvent CreateEvent(Level level, object? title, object? payload);
+        void LogEvent(ILogEvent logEvent);
     }
 
     public static class LoggerExtensions
@@ -96,9 +100,27 @@ namespace Fabrica.Watch
 
     [AttributeUsage(AttributeTargets.Property)]
     public class SensitiveAttribute : Attribute { }
+
+    public class WatchFactoryBuilder
+    {
+        public static WatchFactoryBuilder Create() => new();
+        public void Build() { }
+    }
+
+    public static class WatchFactoryBuilderExtensions
+    {
+        public static WatchFactoryBuilder UseLocalSwitchSource(this WatchFactoryBuilder builder) => builder;
+    }
+}
+
+namespace Fabrica.Watch.Bridges.MicrosoftImpl
+{
+    public class LoggerProvider { }
 }
 
 namespace Fabrica.Watch.Sink
 {
     public enum PayloadType { None, Json, Xml, Sql, Text, Yaml }
+
+    public interface ILogEvent : IDisposable { }
 }

@@ -14,7 +14,7 @@ namespace Pondhawk.Logging.Migration.Tests.Support;
 /// </summary>
 internal sealed class MigrationTest : CSharpCodeFixTest<FabricaWatchAnalyzer, FabricaWatchCodeFixProvider, DefaultVerifier>
 {
-    private static readonly string[] AllRules = ["PHLM001", "PHLM005", "PHLM012", "PHLM013", "PHLM014", "PHLM015", "PHLM016"];
+    private static readonly string[] AllRules = new FabricaWatchAnalyzer().SupportedDiagnostics.Select(d => d.Id).ToArray();
 
     private static readonly string Stub = ReadStub();
 
@@ -31,12 +31,17 @@ internal sealed class MigrationTest : CSharpCodeFixTest<FabricaWatchAnalyzer, Fa
 
         CompilerDiagnostics = CompilerDiagnostics.None;
 
-        foreach (var rule in AllRules.Except(rules))
+        // Naming no rules runs them all.
+        foreach (var rule in rules.Length == 0 ? [] : AllRules.Except(rules))
             DisabledDiagnostics.Add(rule);
     }
 
     public static Task RunAsync(string source, string fixedSource, params string[] rules) =>
         new MigrationTest(source, fixedSource, rules).RunAsync();
+
+    /// <summary>A report-only rule: the diagnostics marked in <paramref name="source"/>, and no fix that changes it.</summary>
+    public static Task ReportAsync(string source, params string[] rules) =>
+        new MigrationTest(source, source, rules).RunAsync();
 
     /// <summary>A test that expects no diagnostic of the given rules: the code is left alone.</summary>
     public static Task NoneAsync(string source, params string[] rules) =>

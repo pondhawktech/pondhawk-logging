@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Simplification;
 
 namespace Pondhawk.Logging.Migration;
@@ -27,7 +28,15 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
     /// <inheritdoc />
     public override ImmutableArray<string> FixableDiagnosticIds { get; } = ImmutableArray.Create(
         Rules.LevelCall.Id,
+        Rules.Template.Id,
+        Rules.Parts.Id,
+        Rules.Lazy.Id,
         Rules.LevelEnabled.Id,
+        Rules.MethodTrace.Id,
+        Rules.Scope.Id,
+        Rules.ContextCall.Id,
+        Rules.InspectName.Id,
+        Rules.Pretty.Id,
         Rules.FactoryLocator.Id,
         Rules.ObjectExtension.Id,
         Rules.SharedType.Id,
@@ -59,10 +68,14 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
         if (root is null || model is null)
             return document;
 
+        var newLine = root.DescendantTrivia().FirstOrDefault(t => t.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.EndOfLineTrivia)).ToFullString();
+        if (newLine.Length == 0)
+            newLine = "\n";
+
         var rewrites = new Dictionary<SyntaxNode, Func<SyntaxNode, SyntaxNode>>();
         foreach (var diagnostic in diagnostics)
         {
-            if (Rewrites.For(diagnostic, root, model, cancellationToken) is { } found)
+            if (Rewrites.For(diagnostic, root, model, newLine, cancellationToken) is { } found)
                 rewrites[found.Node] = found.Rewrite;
         }
 
@@ -73,7 +86,8 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
         rewritten = UsingSwap.MarkQualifiedNames(rewritten);
 
         var changed = document.WithSyntaxRoot(rewritten);
-        return await Simplifier.ReduceAsync(changed, Simplifier.Annotation, cancellationToken: cancellationToken).ConfigureAwait(false);
+        changed = await Simplifier.ReduceAsync(changed, Simplifier.Annotation, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await Formatter.FormatAsync(changed, Formatter.Annotation, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     // A global using of Fabrica.Watch is in scope everywhere; adding Microsoft.Extensions.Logging beside it would

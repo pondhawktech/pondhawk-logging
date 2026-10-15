@@ -68,12 +68,20 @@ internal static class CarriedOver
         return declared.Name switch
         {
             "LogJson" or "LogXml" => FabricaWatch.Argument(invocation, 3) is not { ArgumentKind: ArgumentKind.Explicit },
-            "Inspect" => FabricaWatch.Argument(invocation, 1) is { } argument && IsString(argument),
+            "Inspect" => HasStringName(invocation),
+            "ErrorWithContext" => HasStringMessage(invocation),
             _ => SameShape.Contains(declared.Name, StringComparer.Ordinal),
         };
     }
 
-    // Fabrica.Watch's Inspect takes an object name; Pondhawk.Logging's a string.
+    /// <summary>Fabrica.Watch's Inspect takes an object name; Pondhawk.Logging's a string.</summary>
+    public static bool HasStringName(IInvocationOperation invocation) =>
+        FabricaWatch.Argument(invocation, 1) is { } argument && IsString(argument);
+
+    /// <summary>Fabrica.Watch's ErrorWithContext message is optional and any object; Pondhawk.Logging's a string.</summary>
+    public static bool HasStringMessage(IInvocationOperation invocation) =>
+        FabricaWatch.Argument(invocation, 3) is { ArgumentKind: ArgumentKind.Explicit } argument && IsString(argument);
+
     private static bool IsString(IArgumentOperation argument)
     {
         var value = argument.Value is IConversionOperation { IsImplicit: true } conversion ? conversion.Operand : argument.Value;
