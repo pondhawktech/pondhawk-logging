@@ -60,7 +60,7 @@ public partial class LogEvent
     public string Tag { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets the log level as an integer (maps to Level enum).
+    /// Gets the log level as an integer (the <see cref="Microsoft.Extensions.Logging.LogLevel"/> value).
     /// </summary>
     public int Level { get; set; }
 
