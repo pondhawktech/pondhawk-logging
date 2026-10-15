@@ -35,6 +35,7 @@ public class LoggingExtensionsTests
         logger.LogObject("The user", new { Name = "Ada" });
 
         var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Trace);
         e.Message.ShouldBe("The user");
         CollectingLogger.Prop(e, LogPropertyNames.PayloadType).ShouldBe((int)PayloadType.Json);
     }

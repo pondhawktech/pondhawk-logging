@@ -116,7 +116,7 @@ them in `.editorconfig` to stop new Fabrica.Watch calls appearing mid-migration.
 | PHLM007 | `EnterScope(name)` / `LeaveScope(name)` pairs | A disposable `logger.EnterMethod(name)` scope around the bracketed statements |
 | PHLM008 | `ErrorWithContext(ex, context)` with no message; `WarningWithContext(…)` | Adds a message (required by `ErrorWithContext`); `WarningWithContext` → `LogObject(LogLevel.Warning, "Context", context)` + `LogWarning(ex, message)` |
 | PHLM009 | `Inspect(object name, value)` with a non-string name | `Inspect(string, object?)` — `nameof(...)` or `.ToString()` |
-| PHLM010 | `LogObject(title, value)` | No rewrite needed; **info only**: notes the level moves Debug → Trace and offers `LogObject(LogLevel.Debug, title, value)` as an alternative fix |
+| PHLM010 | `LogObject(title, value)` | No rewrite needed; **report only**: notes the level moves Debug → Trace. `LogObject` without a level always logs at Trace — the payload is expensive to build — so no Debug alternative is offered |
 | PHLM011 | `LogJson/LogXml(title, text, bool pretty)` | Drops `pretty` (Pondhawk logs content as given) |
 | PHLM012 | `WatchFactoryLocator.Factory.GetLogger(category)` / `.GetLogger<T>()` / `.GetLogger(Type)` | `LoggingFactoryLocator.GetFactory().CreateLogger(…)` |
 | PHLM013 | `this.EnterMethod<T>()` / `this.GetLogger()` / `EnterMethodSlim(category)` from `WatchExtensions` | `ObjectLoggingExtensions` equivalents (`object.EnterMethod()`, `object.GetLogger()`); `EnterMethodSlim` → `factory.CreateLogger(category).EnterMethod()` |
@@ -200,7 +200,7 @@ commit from step 2 is still purely mechanical and can be reviewed by rule rather
 | `EnterMethod()` (Debug) / `LeaveMethod()` / dispose | `using var logger = …EnterMethod();` (Debug after §1) |
 | `EnterScope` / `LeaveScope` | disposable `EnterMethod(name)` scope |
 | `Inspect(name, value)` → "Variable: name = (value)" | `Inspect(name, value)` → "name = value" (Debug) |
-| `LogObject(title, obj)` (Debug) | `LogObject(title, obj)` (Trace) or `LogObject(LogLevel.Debug, title, obj)` |
+| `LogObject(title, obj)` (Debug) | `LogObject(title, obj)` (Trace) |
 | `LogJson/LogXml/LogSql/LogYaml(title, text)` | same names (Debug), plus `LogLevel` overloads |
 | `ErrorWithContext(ex, ctx, msg?)` | `ErrorWithContext(ex, ctx, msg)` (message required) |
 | `WarningWithContext` | `LogObject(LogLevel.Warning, …)` + `LogWarning(ex, …)` |
@@ -301,8 +301,10 @@ the MCP `set_switch` tool can then silence a category instead of holding it at C
 4. §2 migration analyzer — `Pondhawk.Logging.Migration` 1.0 and `MIGRATING-FROM-FABRICA-WATCH.md`;
    validated by running it over a real Fabrica.Watch codebase before 1.0 is published to nuget.org.
 
-## Open questions
+## Decisions
 
-- Version number for §1: `3.1` (behaviour change, no API change) or `4.0`?
-- Analyzer rule severities: `info` by default, or `warning` so a migration cannot leave calls behind?
-- Should PHLM010 rewrite `LogObject` to keep Debug by default, or only offer it? (Plan: offer only.)
+- §1 ships as `Pondhawk.Logging` **3.1** — a behaviour change, no API change.
+- Analyzer rules are **`info`** by default; an application raises them in `.editorconfig` to stop new
+  Fabrica.Watch calls mid-migration.
+- `LogObject` without a level always logs at **Trace**; PHLM010 reports the move from Debug and offers
+  no alternative. The `LogObject(level, …)` overloads stay, for attaching an object to a failure event.
