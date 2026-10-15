@@ -147,8 +147,21 @@ ambiguous while `using Fabrica.Watch;` is still there, and stop the other rules 
 reason every fix writes new names fully qualified (`global::…`) and lets the simplifier shorten them once the
 usings allow. Fabrica.Watch's own source, if vendored into the solution, is never reported.
 
-**Built so far (step 1):** PHLM001, PHLM005, PHLM012–PHLM016 — `src/Pondhawk.Logging.Migration`, tests in
-`test/Pondhawk.Logging.Migration.Tests`.
+**Built:** step 1 — PHLM001, PHLM005, PHLM012–PHLM016; step 2 — PHLM002–PHLM004, PHLM006–PHLM011,
+PHLM020–PHLM023 and the golden-file test (every rule together on a realistic class, which must compile).
+`src/Pondhawk.Logging.Migration`, tests in `test/Pondhawk.Logging.Migration.Tests`.
+
+**What a fix cannot settle it marks (decided 2026-10-15).** Rather than refuse a hard case, a fix writes code
+that compiles and puts `// TODO(Fabrica.Watch migration): …` above the statement — a template that is not a
+constant or cannot be read (formatted with `string.Format` as before), a non-trivial value filling two holes
+(now evaluated twice), a `LeaveMethod` with no `EnterMethod` to pair with, a scope whose locals are used after
+it. So no file is left on `using Fabrica.Watch;` because of one awkward call, and one search finds them all.
+
+**As built, beside the table above:** `WarningWithContext` becomes a braced block holding its two statements
+(one statement can only become one); `logger.EnterMethod();` on an existing logger becomes
+`using var _ = logger.EnterMethod();`; `ErrorWithContext` without a message takes `ex.Message`; a constant
+template held in a field is converted into a literal at the call; the using swap ignores calls that do not bind,
+since those are the ones a rewrite wrote for the new API on a logger still typed as Fabrica.Watch's.
 
 ### Order of operations in an application
 

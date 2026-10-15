@@ -11,10 +11,9 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Pondhawk.Logging.Migration;
 
 /// <summary>
-/// A Fabrica.Watch level call PHLM001 rewrites — <c>Trace/Debug/Info/Warning/Error(message)</c>,
-/// <c>(Exception, message)</c>, or a template overload called with no arguments. A template with arguments
-/// (PHLM002), an interpolated or concatenated message (PHLM003) and a <c>Func&lt;string&gt;</c> (PHLM004) are
-/// left to their own rules.
+/// A Fabrica.Watch level call — <c>Trace/Debug/Info/Warning/Error</c> on a logger — and which of its shapes it
+/// is: a plain message (PHLM001), a template with arguments (PHLM002), a message built from parts (PHLM003)
+/// or a lazy <c>Func&lt;string&gt;</c> (PHLM004).
 /// </summary>
 internal sealed class LevelCall
 {
@@ -27,13 +26,16 @@ internal sealed class LevelCall
         ("Error", "LogError", "Error"),
     ];
 
-    private LevelCall(string name, string method, ExpressionSyntax? exception, ExpressionSyntax? message, MessageKind kind)
+    private LevelCall((string Fabrica, string Method, string Level) level, LevelShape shape, ExpressionSyntax? exception, IArgumentOperation? message, IArgumentOperation? arguments)
     {
-        Name = name;
-        Method = method;
+        Name = level.Fabrica;
+        Method = level.Method;
+        Level = level.Level;
+        Shape = shape;
         Exception = exception;
-        Message = message;
-        Kind = kind;
+        MessageArgument = message;
+        Message = FabricaWatch.Written(message);
+        Arguments = arguments;
     }
 
     /// <summary>The Fabrica.Watch method called.</summary>
@@ -42,16 +44,28 @@ internal sealed class LevelCall
     /// <summary>The Microsoft.Extensions.Logging method it becomes.</summary>
     public string Method { get; }
 
+    /// <summary>The <c>LogLevel</c> member it logs at.</summary>
+    public string Level { get; }
+
+    /// <summary>Which rule's shape the call is.</summary>
+    public LevelShape Shape { get; }
+
     /// <summary>The exception passed, if any.</summary>
     public ExpressionSyntax? Exception { get; }
 
-    /// <summary>The message passed, if one was written.</summary>
+    /// <summary>The message (or template, or <c>Func&lt;string&gt;</c>) passed, if one was written.</summary>
     public ExpressionSyntax? Message { get; }
 
-    /// <summary>What the message is.</summary>
-    public MessageKind Kind { get; }
+    /// <summary>The message argument's operation.</summary>
+    public IArgumentOperation? MessageArgument { get; }
 
-    /// <summary>The level method Fabrica.Watch's level property name stands for, e.g. <c>IsInfoEnabled</c> → <c>Information</c>.</summary>
+    /// <summary>The <c>params</c> argument of a template call.</summary>
+    public IArgumentOperation? Arguments { get; }
+
+    /// <summary>What a plain message is.</summary>
+    public MessageKind Kind => KindOf(MessageArgument);
+
+    /// <summary>The level Fabrica.Watch's level property stands for, e.g. <c>IsInfoEnabled</c> → <c>Information</c>.</summary>
     public static string? LevelOfProperty(string property)
     {
         foreach (var (fabrica, _, level) in Levels)
@@ -63,7 +77,7 @@ internal sealed class LevelCall
         return null;
     }
 
-    /// <summary>The call PHLM001 rewrites, or null when this invocation is not one.</summary>
+    /// <summary>The level call this invocation is, or null when it is not one.</summary>
     public static LevelCall? Match(IInvocationOperation invocation)
     {
         var declared = FabricaWatch.Declared(invocation);
@@ -77,24 +91,26 @@ internal sealed class LevelCall
         if (parameters.Length <= messageAt)
             return null;
 
-        var message = parameters[messageAt];
-        var isTemplate = message.Type.SpecialType == SpecialType.System_String
-            && parameters.Length > messageAt + 1 && parameters[messageAt + 1].IsParams;
-
-        if (message.Type.SpecialType != SpecialType.System_Object && !isTemplate)
-            return null;   // Func<string> — PHLM004
-
-        if (isTemplate && !HasNoArguments(FabricaWatch.Argument(invocation, messageAt + 1)))
-            return null;   // a template with arguments — PHLM002
-
-        var argument = FabricaWatch.Argument(invocation, messageAt);
-        var written = FabricaWatch.Written(argument);
-        if (written is not null && IsBuiltFromParts(written, argument!))
-            return null;   // interpolated or concatenated — PHLM003
-
+        var message = FabricaWatch.Argument(invocation, messageAt);
         var exception = exceptionFirst ? FabricaWatch.Written(FabricaWatch.Argument(invocation, 1)) : null;
-        return new LevelCall(level.Fabrica, level.Method, exception, written, KindOf(argument));
+        var type = parameters[messageAt].Type;
+
+        if (type is INamedTypeSymbol { Name: "Func", Arity: 1 })
+            return new LevelCall(level, LevelShape.Lazy, exception, message, null);
+
+        var isTemplate = type.SpecialType == SpecialType.System_String && parameters.Length > messageAt + 1 && parameters[messageAt + 1].IsParams;
+        var arguments = isTemplate ? FabricaWatch.Argument(invocation, messageAt + 1) : null;
+        if (isTemplate && !HasNoArguments(arguments))
+            return new LevelCall(level, LevelShape.Template, exception, message, arguments);
+
+        var written = FabricaWatch.Written(message);
+        var shape = written is not null && IsBuiltFromParts(written, message!) ? LevelShape.Parts : LevelShape.Simple;
+        return new LevelCall(level, shape, exception, message, null);
     }
+
+    /// <summary>The value an argument passes, without the implicit conversion to the parameter's type.</summary>
+    public static IOperation Unwrapped(IArgumentOperation argument) =>
+        argument.Value is IConversionOperation { IsImplicit: true } conversion ? conversion.Operand : argument.Value;
 
     private static bool IsException(ITypeSymbol type) =>
         string.Equals(type.ToDisplayString(), "System.Exception", StringComparison.Ordinal);
@@ -115,7 +131,8 @@ internal sealed class LevelCall
                 && Unwrapped(argument).Type?.SpecialType == SpecialType.System_String);
     }
 
-    private static MessageKind KindOf(IArgumentOperation? argument)
+    /// <summary>What an argument passed as a message is.</summary>
+    public static MessageKind KindOf(IArgumentOperation? argument)
     {
         if (argument is null || argument.ArgumentKind != ArgumentKind.Explicit)
             return MessageKind.None;
@@ -126,7 +143,4 @@ internal sealed class LevelCall
 
         return value.Type?.SpecialType == SpecialType.System_String ? MessageKind.Text : MessageKind.Value;
     }
-
-    private static IOperation Unwrapped(IArgumentOperation argument) =>
-        argument.Value is IConversionOperation { IsImplicit: true } conversion ? conversion.Operand : argument.Value;
 }
