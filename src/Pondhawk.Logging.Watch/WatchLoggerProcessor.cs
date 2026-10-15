@@ -205,7 +205,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             Category = category,
             Level = (int)info.LogLevel,
             Color = sw.Color.ToArgb(),
-            Tag = sw.Tag,
+            Tag = DiagnosticProbe.IsActive ? DiagnosticProbe.Tag : sw.Tag,
             Title = entry.ToString(),
             CorrelationId = correlationId,
             Occurred = info.Timestamp.Utc.UtcDateTime,

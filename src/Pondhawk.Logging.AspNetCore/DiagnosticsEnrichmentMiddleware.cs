@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pondhawk.Context;
 
@@ -23,16 +24,20 @@ public sealed class DiagnosticsEnrichmentMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly DiagnosticsOptions _options;
+    private readonly ILogger _logger;
 
     /// <summary>Creates the middleware.</summary>
     /// <param name="next">The next middleware.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
     /// <param name="options">The diagnostics options.</param>
-    public DiagnosticsEnrichmentMiddleware(RequestDelegate next, IOptions<DiagnosticsOptions> options)
+    public DiagnosticsEnrichmentMiddleware(RequestDelegate next, ILoggerFactory loggerFactory, IOptions<DiagnosticsOptions> options)
     {
         ArgumentNullException.ThrowIfNull(next);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(options);
 
         _next = next;
+        _logger = loggerFactory.CreateLogger(DiagnosticsLog.Category);
         _options = options.Value;
     }
 
@@ -44,6 +49,7 @@ public sealed class DiagnosticsEnrichmentMiddleware
         ArgumentNullException.ThrowIfNull(context);
 
         RequestCorrelation.Ensure(context, _options);
+        RequestProbe.Offer(context, _options, _logger);
 
         var operation = Ambient<IOperationContext>.Current;
 
@@ -55,6 +61,9 @@ public sealed class DiagnosticsEnrichmentMiddleware
         var tenant = _options.Tenant?.Invoke(context);
         if (!string.IsNullOrEmpty(tenant))
             operation.Tenant = tenant;
+
+        // A probe bound to a user starts here, now that the caller is known.
+        RequestProbe.Bind(context, _logger, operation.SubjectName);
 
         return _next(context);
     }

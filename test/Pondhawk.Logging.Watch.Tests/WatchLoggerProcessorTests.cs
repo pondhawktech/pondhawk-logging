@@ -361,6 +361,25 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Tags_TheEventsOfAProbedRequest_Diagnostics()
+    {
+        var handler = new MockHttpHandler();
+        var switches = new SwitchSource();
+        switches.WhenMatched("My", "MyTag", LogLevel.Trace, Color.Red);
+        var (factory, delivered) = Build(handler, switches);
+
+        using (new System.Diagnostics.Activity("probed request").Start())
+        {
+            DiagnosticProbe.Begin();
+            factory.CreateLogger("My.Service").LogWarning("warn");
+        }
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Tag.ShouldBe(DiagnosticProbe.Tag);
+    }
+
+    [Fact]
     public async Task Captures_CorrelationId_OfTheUnitOfWork()
     {
         var handler = new MockHttpHandler();

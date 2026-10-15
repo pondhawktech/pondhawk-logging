@@ -49,6 +49,7 @@ public sealed class DiagnosticsMonitorMiddleware
         ArgumentNullException.ThrowIfNull(context);
 
         RequestCorrelation.Ensure(context, _options);
+        RequestProbe.Offer(context, _options, _logger);
 
         if (_options.Skip?.Invoke(context) == true)
         {

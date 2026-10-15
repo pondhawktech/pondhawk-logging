@@ -206,6 +206,15 @@ global using Ulid = MyCompany.Support.Ulid;   // your type wins project-wide
 
 Correlation ids are the only thing this package uses it for, and it is not exposed on any public API.
 
+### The diagnostic probe
+
+A request carrying a probe token Watch issued (see
+[`Pondhawk.Logging.AspNetCore`](../Pondhawk.Logging.AspNetCore/README.md#the-diagnostic-probe)) logs at
+Trace whatever the switches say, and its events carry the tag `Diagnostics`. The switch filter reads the probe
+only when a switch would drop an event, so an unprobed request pays nothing for it. The domain's probe public
+key arrives with the switches; `AddWatch` registers it as `IDiagnosticProbeKey` for the token check. A failed
+poll keeps the last key; a rebind drops it until the new domain's switches arrive.
+
 ## Key Components
 
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation, subject and tenant), then delivers them.

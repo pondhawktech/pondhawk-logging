@@ -113,8 +113,16 @@ public static class WatchLoggingBuilderExtensions
         // true, so the composite logger's IsEnabled — the one the call site checks before formatting —
         // reflects this filter, giving switch-dropped categories a zero-work short-circuit.
         builder.SetMinimumLevel(LogLevel.Trace);
+        // A probed request passes at every level whatever its switch says. The probe is read only when the
+        // switch would drop the event, so an unprobed process pays nothing for it.
         builder.AddFilter((category, level) =>
-            string.IsNullOrWhiteSpace(category) || level >= switches.Lookup(category).Level);
+            string.IsNullOrWhiteSpace(category)
+            || level >= switches.Lookup(category).Level
+            || (level < LogLevel.None && DiagnosticProbe.IsActive));
+
+        // The key a probe token is checked against comes with the switches.
+        if (switches is IDiagnosticProbeKey probeKey)
+            builder.Services.TryAddSingleton(probeKey);
 
         builder.AddZLoggerLogProcessor((_, _) =>
             new WatchLoggerProcessor(

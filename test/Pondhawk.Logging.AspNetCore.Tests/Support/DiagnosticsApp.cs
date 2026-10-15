@@ -29,15 +29,25 @@ internal sealed class DiagnosticsApp : IAsyncDisposable
     public static async Task<DiagnosticsApp> StartAsync(
         Action<IApplicationBuilder> pipeline,
         Action<DiagnosticsOptions> configure = null,
-        CapturingLoggerProvider log = null)
+        CapturingLoggerProvider log = null,
+        Action<ILoggingBuilder> logging = null,
+        Action<IServiceCollection> services = null)
     {
         log ??= new CapturingLoggerProvider();
 
         var host = await new HostBuilder()
-            .ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Trace).AddProvider(log))
+            .ConfigureLogging(builder =>
+            {
+                builder.SetMinimumLevel(LogLevel.Trace).AddProvider(log);
+                logging?.Invoke(builder);
+            })
             .ConfigureWebHost(web => web
                 .UseTestServer()
-                .ConfigureServices(services => services.AddRouting().AddPondhawkDiagnostics(configure))
+                .ConfigureServices(collection =>
+                {
+                    collection.AddRouting().AddPondhawkDiagnostics(configure);
+                    services?.Invoke(collection);
+                })
                 .Configure(pipeline))
             .StartAsync();
 

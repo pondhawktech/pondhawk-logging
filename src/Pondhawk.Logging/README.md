@@ -52,6 +52,15 @@ All of it covers the current `Activity` and its children, and ends with it. None
 stays in the process: a user name is never sent to the services this one calls, and a correlation id meant
 for one is sent on purpose, in a header.
 
+## The diagnostic probe
+
+`DiagnosticProbe` marks the current unit of work as probed — support asked, with a token Watch Server issued,
+for everything it logs at Trace. `DiagnosticProbe.Begin()` marks the current `Activity`; `IsActive` is true
+for it and every activity under it, and the mark is neither baggage nor a tag, so it is never sent on an
+outbound call. `IDiagnosticProbeKey` is where the key that checks a token comes from. A provider honours the
+probe (the Watch provider does) and `Pondhawk.Logging.AspNetCore` checks the token; application code needs
+neither.
+
 ## Acquiring loggers
 
 Loggers come from the standard `ILoggerFactory` — there is no proprietary acquisition type. Inject

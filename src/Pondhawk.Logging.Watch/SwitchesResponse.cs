@@ -12,4 +12,10 @@ public class SwitchesResponse
     /// Gets or sets the list of switch definitions.
     /// </summary>
     public IList<SwitchDto> Switches { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the domain's diagnostic probe public key — an ECDSA P-256 SubjectPublicKeyInfo, base64 — or
+    /// null when the domain has none yet.
+    /// </summary>
+    public string? ProbeKey { get; set; }
 }

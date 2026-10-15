@@ -24,6 +24,9 @@ public sealed class DiagnosticsOptions
     /// <summary>The default for <see cref="MaxBodyBytes"/>.</summary>
     public const int DefaultMaxBodyBytes = 64 * 1024;
 
+    /// <summary>The default for <see cref="ProbeHeader"/> — the header Fabrica clients send.</summary>
+    public const string DefaultProbeHeader = "X-Diagnostics-Probe";
+
     /// <summary>The most <see cref="MaxBodyBytes"/> can be; a larger value is treated as this.</summary>
     public const int LargestMaxBodyBytes = 1024 * 1024;
 
@@ -94,6 +97,16 @@ public sealed class DiagnosticsOptions
     /// provider's default level.
     /// </summary>
     public bool EndLevelByOutcome { get; set; }
+
+    /// <summary>
+    /// Whether a diagnostic probe token is honoured. On by default, but a token is only ever accepted when a
+    /// provider supplies the key it is checked against (<see cref="IDiagnosticProbeKey"/>; the Watch provider
+    /// does): a probed request then logs at Trace whatever the switches say, request dump included.
+    /// </summary>
+    public bool Probe { get; set; } = true;
+
+    /// <summary>The header a diagnostic probe token is read from. Empty reads none.</summary>
+    public string ProbeHeader { get; set; } = DefaultProbeHeader;
 
     /// <summary>The default <see cref="Subject"/>: the <c>sub</c> claim, then the name identifier claim.</summary>
     /// <param name="context">The HTTP context.</param>

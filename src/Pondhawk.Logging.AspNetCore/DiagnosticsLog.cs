@@ -19,4 +19,10 @@ internal static partial class DiagnosticsLog
 
     [LoggerMessage(EventId = 2, Message = "End {Method} {Path} -> {Status} ({Elapsed:F1}ms)")]
     public static partial void End(ILogger logger, LogLevel level, Exception? exception, string method, string? path, int status, double elapsed);
+
+    [LoggerMessage(EventId = 3, Message = "Diagnostic probe refused: {Reason} (token {TokenId})")]
+    public static partial void ProbeRefused(ILogger logger, LogLevel level, string reason, string tokenId);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Debug, Message = "Diagnostic probe {TokenId} for {Subject}")]
+    public static partial void ProbeBegun(ILogger logger, string tokenId, string subject);
 }
