@@ -246,11 +246,9 @@ package instead, without losing anything it relied on.
 4. **Request logging parity** with Fabrica's: request and response summary at Debug, bodies only when
    the category is open, `Authorization`/`Cookie`/`Set-Cookie` masked, body size cap. Confirm a body
    is never logged for a request skipped by `Skip`.
-5. **Name collision during migration.** Fabrica.Api.Support defines `UseRequestLogging` and
-   `UseDiagnosticsMonitor` on `IApplicationBuilder` too; a file importing both namespaces gets
-   CS0121. Not a reason to rename — the Fabrica middleware is being removed — but the migration guide
-   says to delete the Fabrica registrations in the same change, or call this package's methods through
-   `DiagnosticsApplicationBuilderExtensions` explicitly while both exist.
+5. **Name collision — not a problem (decided 2026-10-15).** Fabrica.Api.Support also defines
+   `UseRequestLogging` and `UseDiagnosticsMonitor` on `IApplicationBuilder`, but an application never
+   uses Fabrica's middleware and this package together, so the names never meet. Nothing to do.
 6. **Per-request elevation — the diagnostic probe.** Fabrica let any caller raise a request's logging by
    sending `X-Diagnostics-Probe: 1`. It returns here as a **signed probe token** issued by Watch Server —
    designed below.
@@ -268,7 +266,9 @@ header carries a token only Watch Server can make. The end user needs no role.
 
 **The token.** Issued by Watch Server for one domain
 (`watch-server/docs/plans/2026-10-15-diagnostic-probe-tokens.md`): a payload — version, token id, domain,
-optional subject name, expiry — and an **ECDSA P-256** signature over it, each base64url, joined by a dot. Watch
+optional subject name, expiry — and an **ECDSA P-256** signature over it, each base64url, joined by a dot.
+What is signed is the payload's base64url text (the part before the dot) as ASCII bytes, as JWS does —
+never re-serialized JSON; the payload is decoded only after the signature verifies. Watch
 holds the private key, one key pair per domain; the application gets the **public key** with its
 switches, so it holds no secret and the domain needs no API key. A token **bound to a user** lasts up to
 4 hours; an **unbound** one (for a user who cannot sign in, whose subject is `anonymous`) up to 1 hour.
@@ -286,7 +286,8 @@ whatever its signature, and a forged token stops within 4 hours.
   `Activity` as a custom property (never baggage, so it is never sent on an outbound call), and an
   `IDiagnosticProbeKey` interface — the current domain name and public key, or none.
 - **`Pondhawk.Logging.Watch`** — `AddWatch` registers an `IDiagnosticProbeKey` backed by the switch
-  poll: `SwitchesResponse` gains the domain's probe public key, kept with the switch table and replaced
+  poll: `SwitchesResponse` gains **`ProbeKey`** (exactly that name, as Watch sends it: base64
+  SubjectPublicKeyInfo, or null), the domain's probe public key, kept with the switch table and replaced
   on a rebind. The **switch filter** honours the flag: a probed request passes at **Trace** whatever the
   switch says (`level >= (probed ? Trace : switch level)`), and its events carry the tag "Diagnostics".
   CloudWatch and the journald console keep their own floors.

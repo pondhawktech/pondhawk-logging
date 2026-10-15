@@ -176,6 +176,21 @@ public class RequestLoggingTests
     }
 
     [Fact]
+    public async Task A_skipped_request_is_not_dumped_and_its_body_is_not_buffered()
+    {
+        var seen = new Seen();
+        await using var app = await DiagnosticsApp.StartAsync(
+            Dumping(seen),
+            options => options.Skip = context => context.Request.Path.StartsWithSegments("/health"));
+
+        await app.Client.PostAsync("/health", Content("""{"secret":"s3cr3t"}""", Json));
+
+        app.Log.Diagnostics.ShouldBeEmpty();
+        seen.Buffered.ShouldBeFalse();
+        seen.Body.ShouldBe("""{"secret":"s3cr3t"}""");
+    }
+
+    [Fact]
     public async Task A_masked_form_field_never_appears_and_its_neighbours_are_untouched()
     {
         var seen = new Seen();

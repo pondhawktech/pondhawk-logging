@@ -5,6 +5,7 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Context;
 using Pondhawk.Logging.AspNetCore.Tests.Support;
 using Shouldly;
 using Xunit;
@@ -202,5 +203,67 @@ public class DiagnosticsMonitorTests
 
         response.Headers.GetValues("X-Correlation-Id").ShouldBe(["caller-id-1"]);
         app.Log.Diagnostics.ShouldAllBe(e => e.CorrelationId == "caller-id-1");
+    }
+
+    [Fact]
+    public async Task Application_middleware_and_the_endpoint_read_the_settled_correlation_id()
+    {
+        string seenByMiddleware = null;
+
+        await using var app = await DiagnosticsApp.StartAsync(app =>
+        {
+            app.UseDiagnosticsMonitor();
+            app.Use((HttpContext context, RequestDelegate next) =>
+            {
+                seenByMiddleware = Ambient<IOperationContext>.Current.CorrelationId;
+                return next(context);
+            });
+            app.Run(context => context.Response.WriteAsync(Ambient<IOperationContext>.Current.CorrelationId));
+        });
+
+        var response = await app.Client.GetAsync("/orders/7");
+
+        var echoed = response.Headers.GetValues("X-Correlation-Id").ShouldHaveSingleItem();
+        seenByMiddleware.ShouldBe(echoed);
+        (await response.Content.ReadAsStringAsync()).ShouldBe(echoed);
+        app.Log.Diagnostics.ShouldAllBe(e => e.CorrelationId == echoed);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_exception_handler_on_either_side_of_the_monitor_writes_the_requests_correlation_id(bool handlerFirst)
+    {
+        var handler = new ExceptionHandlerOptions
+        {
+            ExceptionHandler = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                return context.Response.WriteAsync(Ambient<IOperationContext>.Current.CorrelationId);
+            },
+        };
+
+        await using var app = await DiagnosticsApp.StartAsync(app =>
+        {
+            if (handlerFirst)
+                app.UseExceptionHandler(handler);
+
+            app.UseDiagnosticsMonitor();
+
+            if (!handlerFirst)
+                app.UseExceptionHandler(handler);
+
+            app.Run(_ => throw new InvalidOperationException("boom"));
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/broken");
+        request.Headers.Add("X-Correlation-Id", "caller-id-2");
+
+        var response = await app.Client.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
+        response.Headers.GetValues("X-Correlation-Id").ShouldBe(["caller-id-2"]);
+        (await response.Content.ReadAsStringAsync()).ShouldBe("caller-id-2");
+        app.Log.Diagnostics[^1].Exception.ShouldBeOfType<InvalidOperationException>();
     }
 }
