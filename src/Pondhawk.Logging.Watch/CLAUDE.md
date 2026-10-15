@@ -12,8 +12,8 @@ helpers, `[Sensitive]` masking, and the `LogPropertyNames` contract — lives in
 this package references. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
 logging guide.
 
-Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Logging`; no
-dependency on other Pondhawk packages.
+Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Logging` and
+`Pondhawk.Context` (the ambient `IOperationContext`); no dependency on other Pondhawk packages.
 
 ---
 

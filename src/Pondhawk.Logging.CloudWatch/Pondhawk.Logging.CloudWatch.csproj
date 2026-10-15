@@ -33,6 +33,7 @@
     <PackageReference Include="AWSSDK.CloudWatchLogs" />
     <PackageReference Include="CommunityToolkit.Diagnostics" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Pondhawk.Context" />
     <PackageReference Include="ZLogger" />
   </ItemGroup>
 

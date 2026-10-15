@@ -34,7 +34,9 @@ and public `TypeExtensions` (`GetConciseName` / `GetConciseFullName`).
 The current unit of work — its correlation id, who it is for and which tenant it belongs to — is
 `IOperationContext` from [Pondhawk.Context](https://www.nuget.org/packages/Pondhawk.Context), the one
 ambient context every Pondhawk library reads. Sinks stamp the correlation id, the subject's name and the
-tenant on every event logged within it; an audit journal can record the same values.
+tenant on every event logged within it; an audit journal can record the same values. This package does
+not reference Pondhawk.Context; the provider packages that read it (`Pondhawk.Logging.Watch`,
+`.CloudWatch`, `.AspNetCore`) bring it with them.
 
 ```csharp
 using (Operation.Begin())                                   // background work: a fresh correlation id, subject "system"
@@ -82,7 +84,7 @@ public class LoggingSetup
     [OneTimeSetUp]
     public void SetUp()
     {
-        _factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000", "Tests"));
+        _factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000/Tests"));
         LoggingFactoryLocator.SetFactory(_factory);
     }
 

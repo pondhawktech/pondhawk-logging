@@ -160,7 +160,7 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
                 {
                     Pattern = s.Pattern,
                     Tag = s.Tag,
-                    Level = s.Level > (int)LogLevel.Critical ? LogLevel.Critical : (LogLevel)s.Level,
+                    Level = (LogLevel)Math.Clamp(s.Level, (int)LogLevel.Trace, (int)LogLevel.None),
                     Color = Color.FromArgb(s.Color)
                 }).ToList();
 
