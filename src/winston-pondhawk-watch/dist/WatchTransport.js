@@ -9,7 +9,7 @@ const winstonToWatchLevel = {
     http: Level.Debug,
     verbose: Level.Debug,
     debug: Level.Debug,
-    silly: Level.Verbose,
+    silly: Level.Trace,
 };
 export class WatchTransport extends Transport {
     watchUrl;

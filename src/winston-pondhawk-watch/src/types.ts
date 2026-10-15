@@ -1,10 +1,16 @@
+// Microsoft.Extensions.Logging's names, as Watch uses. The old Serilog names stay as aliases until the next
+// major version; each comes before its replacement so the reverse mapping (Level[0]) gives the new name.
 export enum Level {
+  /** @deprecated Use Level.Trace. */
   Verbose = 0,
+  Trace = 0,
   Debug = 1,
   Information = 2,
   Warning = 3,
   Error = 4,
+  /** @deprecated Use Level.Critical. */
   Fatal = 5,
+  Critical = 5,
 }
 
 export enum PayloadType {

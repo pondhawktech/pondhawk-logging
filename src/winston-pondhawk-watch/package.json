@@ -1,6 +1,6 @@
 {
   "name": "winston-pondhawk-watch",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Winston transport for Pondhawk Watch Server",
   "type": "module",
   "main": "dist/index.js",

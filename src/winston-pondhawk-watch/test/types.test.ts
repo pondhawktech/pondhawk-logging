@@ -4,12 +4,19 @@ import { ulid } from '../src/ulid.js';
 
 describe('Level enum', () => {
   it('has correct numeric values', () => {
-    expect(Level.Verbose).toBe(0);
+    expect(Level.Trace).toBe(0);
     expect(Level.Debug).toBe(1);
     expect(Level.Information).toBe(2);
     expect(Level.Warning).toBe(3);
     expect(Level.Error).toBe(4);
-    expect(Level.Fatal).toBe(5);
+    expect(Level.Critical).toBe(5);
+  });
+
+  it('keeps the Serilog names as deprecated aliases, naming a value by its MEL name', () => {
+    expect(Level.Verbose).toBe(Level.Trace);
+    expect(Level.Fatal).toBe(Level.Critical);
+    expect(Level[0]).toBe('Trace');
+    expect(Level[5]).toBe('Critical');
   });
 });
 

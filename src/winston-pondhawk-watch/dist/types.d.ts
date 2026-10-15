@@ -1,10 +1,14 @@
 export declare enum Level {
+    /** @deprecated Use Level.Trace. */
     Verbose = 0,
+    Trace = 0,
     Debug = 1,
     Information = 2,
     Warning = 3,
     Error = 4,
-    Fatal = 5
+    /** @deprecated Use Level.Critical. */
+    Fatal = 5,
+    Critical = 5
 }
 export declare enum PayloadType {
     None = 0,
