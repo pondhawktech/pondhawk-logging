@@ -28,6 +28,10 @@ Five packages, all `net8.0`, with no dependency on any Pondhawk package beyond t
 | [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
 | [**Pondhawk.Logging.AspNetCore**](src/Pondhawk.Logging.AspNetCore/README.md) | ASP.NET Core request diagnostics for `Pondhawk.Logging` — correlation id, subject and tenant on every event of a request, a begin/end bracket with status and elapsed time, and an opt-in dump of the whole request. Needs the ASP.NET Core shared framework. |
 
+Moving off **Fabrica.Watch**? [**Pondhawk.Logging.Migration**](src/Pondhawk.Logging.Migration/README.md) is a
+development-only Roslyn analyzer (`netstandard2.0`) whose code fixes rewrite Fabrica.Watch calls to
+`Microsoft.Extensions.Logging` and this API.
+
 ## Installation
 
 ```bash

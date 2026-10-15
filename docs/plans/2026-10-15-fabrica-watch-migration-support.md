@@ -86,9 +86,10 @@ change; they accept any version ≥ their reference.
   ```
 
   No runtime assembly; nothing ships with the application.
-- Targets `netstandard2.0` (Roslyn's requirement) — the one project not on `net8.0`. Needs a
-  `src/Directory.Build.props` carve-out; keep `TreatWarningsAsErrors` and the Meziantou rules, add the
-  Roslyn analyzer-authoring rules (`Microsoft.CodeAnalysis.Analyzers`, release tracking files).
+- Targets `netstandard2.0` (Roslyn's requirement) — the one project not on `net8.0`. No
+  `src/Directory.Build.props` carve-out was needed (it sets no target framework); `TreatWarningsAsErrors`
+  and the Meziantou rules apply, plus the Roslyn analyzer-authoring rules (`Microsoft.CodeAnalysis.Analyzers`,
+  release tracking files). The analyzer and its fixes share one assembly, so RS1038 is suppressed.
   `Nullable=enable` on `netstandard2.0` needs the nullable attributes, which that target lacks:
   supply them with **PolySharp** (a build-only source generator, `PrivateAssets="all"`, pinned in
   `Directory.Packages.props`), which generates only the missing attributes (and `IsExternalInit`) and
@@ -113,7 +114,7 @@ them in `.editorconfig` to stop new Fabrica.Watch calls appearing mid-migration.
 
 | Rule | Detects (Fabrica.Watch) | Code fix (Pondhawk.Logging / MEL) |
 |---|---|---|
-| PHLM001 | `Trace/Debug/Info/Warning/Error(object? message)` and `(Exception, object? message)` | `LogTrace/LogDebug/LogInformation/LogWarning/LogError`; a non-string message gets `.ToString()` / a `{Value}` template |
+| PHLM001 | `Trace/Debug/Info/Warning/Error(object? message)`, `(Exception, object? message)`, and the template overloads called with **no** arguments — C# picks those for a plain string, so most calls are this shape | `LogTrace/LogDebug/LogInformation/LogWarning/LogError`; a constant message stays the template, a run-time string becomes `"{Message}", text`, anything else `"{Value}", value`; an exception with no message becomes `LogX(ex, "{Message}", ex.Message)` |
 | PHLM002 | `X(string template, params object[] args)` with positional holes (`{0}`, `{1:yyyy-MM-dd}`) | The matching `LogX` with **named** holes derived from each argument expression, format specifiers and alignment kept, repeated indices mapped to one name. Naming: the last two name segments, PascalCased (`kind` → `{Kind}`, `this.order.Id` → `{OrderId}`, `customer.Address.City` → `{AddressCity}`); when two *different* arguments collide, take one more leading segment (`{CustomerAddressCity}`), then a numeric suffix (`{OrderId2}`); no usable name (literal, call, arithmetic) → `{Arg0}`, `{Arg1}`, …. Names must be unique — two holes sharing a name keep only one value in the structured properties, silently |
 | PHLM003 | Interpolated (`$"…"`) or concatenated message | Template + arguments (removes the per-call formatting cost and CA2254) |
 | PHLM004 | `X(Func<string> expression)` | `if (logger.IsEnabled(LogLevel.X)) logger.LogX(…)` with the lambda body converted to a template where possible |
@@ -125,16 +126,29 @@ them in `.editorconfig` to stop new Fabrica.Watch calls appearing mid-migration.
 | PHLM010 | `LogObject(title, value)` | No rewrite needed; **report only**: notes the level moves Debug → Trace. `LogObject` without a level always logs at Trace — the payload is expensive to build — so no Debug alternative is offered |
 | PHLM011 | `LogJson/LogXml(title, text, bool pretty)` | Drops `pretty` (Pondhawk logs content as given) |
 | PHLM012 | `WatchFactoryLocator.Factory.GetLogger(category)` / `.GetLogger<T>()` / `.GetLogger(Type)` | `LoggingFactoryLocator.GetFactory().CreateLogger(…)` |
-| PHLM013 | `this.EnterMethod<T>()` / `this.GetLogger()` / `EnterMethodSlim(category)` from `WatchExtensions` | `ObjectLoggingExtensions` equivalents (`object.EnterMethod()`, `object.GetLogger()`); `EnterMethodSlim` → `factory.CreateLogger(category).EnterMethod()` |
-| PHLM014 | `Fabrica.Watch.SensitiveAttribute`; `Fabrica.Watch.Sink.PayloadType` | `Pondhawk.Logging.SensitiveAttribute`; `Pondhawk.Logging.PayloadType` |
-| PHLM015 | `using Fabrica.Watch;` (and `.Sink`, `.Utilities`) once a file has no other Fabrica.Watch use | `using Microsoft.Extensions.Logging;` + `using Pondhawk.Logging;` |
-| PHLM016 | `Fabrica.Watch.ILogger` as the type of a field, property, parameter, local or return value | `Microsoft.Extensions.Logging.ILogger` — with PHLM012/PHLM013 rewriting acquisition, the rewritten calls bind to MEL and most files compile straight after the Fix All; the type references it removes also let PHLM015 fire |
+| PHLM013 | `WatchExtensions` calls whose text must change: `EnterMethod<T>()` with type arguments or a named argument, and `EnterMethodSlim(category)`. A plain `this.EnterMethod()` and `this.GetLogger()` carry over with PHLM015 | `this.EnterMethod()`; `LoggingFactoryLocator.GetFactory().CreateLogger(category).EnterMethod()` |
+| PHLM014 | `Fabrica.Watch.SensitiveAttribute` / `Fabrica.Watch.Sink.PayloadType` **written in full**; simple names carry over with PHLM015 | `Pondhawk.Logging`'s. Member names carry over, numbers do not (Fabrica `Xml = 2, Sql = 3`; Pondhawk `Sql = 2, Xml = 3`) |
+| PHLM015 | `using Fabrica.Watch;` (and `.Sink`, …) once **every** Fabrica.Watch use left in the file is one the swap carries over (below) | `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;`, each only if the file uses it. A `global using` is left for the guide's manual step |
+| PHLM016 | `Fabrica.Watch.ILogger` **written in full** (including a using alias); a simple `ILogger` carries over with PHLM015 | `Microsoft.Extensions.Logging.ILogger` |
 | PHLM020 | `CreateEvent(…)` + `LogEvent(…)` | **Report only.** Explains the levelled payload overloads (`LogJson(level, …)`, `LogText(level, …)`, `LogObject(level, …)`) and `ErrorWithContext`; hand-migrate |
 | PHLM021 | `WatchFactoryBuilder` / `UseMongo` / `UseRealtime` / `UseQuiet` / `UseLocalSwitchSource` / `WatchFactoryLocator.SetFactory` | **Report only.** Points to `AddWatch` / `AddCloudWatch` / `AddJournaldConsole` and `LoggingFactoryLocator.SetFactory` (set once) |
 | PHLM022 | Fabrica.Watch.Bridges `LoggerProvider` registered into MEL | **Report only.** The bridge is no longer needed — MEL is the API |
 | PHLM023 | `GetCurrentScope` / `SetCurrentScope`, `Category` property reads | **Report only.** No equivalent; explain alternatives |
 
 PHLM001–PHLM016 rewrite; PHLM020–PHLM023 report and link to the guide.
+
+**The using swap carries most names (decided while building step 1, 2026-10-15).** Many Fabrica.Watch names
+mean the same thing once `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;` replace
+`using Fabrica.Watch;`: `ILogger`, `[Sensitive]`, `PayloadType` and its members, `this.GetLogger()`, a plain
+`this.EnterMethod()`, `LogSql`, `LogYaml`, `LogObject(title, value)`, `LogJson`/`LogXml(title, text)` and
+`Inspect` with a string name. They need no rewrite of their own: PHLM015 fires once nothing else in the file
+needs Fabrica.Watch, and the swap carries them over. Rewriting each `ILogger` beforehand would make it
+ambiguous while `using Fabrica.Watch;` is still there, and stop the other rules seeing the code. For the same
+reason every fix writes new names fully qualified (`global::…`) and lets the simplifier shorten them once the
+usings allow. Fabrica.Watch's own source, if vendored into the solution, is never reported.
+
+**Built so far (step 1):** PHLM001, PHLM005, PHLM012–PHLM016 — `src/Pondhawk.Logging.Migration`, tests in
+`test/Pondhawk.Logging.Migration.Tests`.
 
 ### Order of operations in an application
 

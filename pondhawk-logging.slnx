@@ -5,6 +5,7 @@
     <Project Path="src/Pondhawk.Logging.Console/Pondhawk.Logging.Console.csproj" />
     <Project Path="src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj" />
     <Project Path="src/Pondhawk.Logging.AspNetCore/Pondhawk.Logging.AspNetCore.csproj" />
+    <Project Path="src/Pondhawk.Logging.Migration/Pondhawk.Logging.Migration.csproj" />
   </Folder>
   <Folder Name="/build/">
     <Project Path="build/Build.csproj" />
@@ -15,5 +16,6 @@
     <Project Path="test/Pondhawk.Logging.Console.Tests/Pondhawk.Logging.Console.Tests.csproj" />
     <Project Path="test/Pondhawk.Logging.CloudWatch.Tests/Pondhawk.Logging.CloudWatch.Tests.csproj" />
     <Project Path="test/Pondhawk.Logging.AspNetCore.Tests/Pondhawk.Logging.AspNetCore.Tests.csproj" />
+    <Project Path="test/Pondhawk.Logging.Migration.Tests/Pondhawk.Logging.Migration.Tests.csproj" />
   </Folder>
 </Solution>
