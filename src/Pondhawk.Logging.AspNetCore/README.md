@@ -60,6 +60,22 @@ and the value lands on every event of the request. Anything else is ignored and 
 Whichever of the monitor and enrichment runs first settles it, so with the monitor in place a request refused
 before authentication has a correlation id too.
 
+**Use the same id in your own responses and records.** Once it is settled, everything later in the request —
+your middleware, endpoints, exception handler, an audit journal — reads it from the ambient context, so an
+error body or an audit row carries the id the caller was sent and every event of the request is stamped with:
+
+```csharp
+using Pondhawk.Context;
+
+var correlationId = Ambient<IOperationContext>.Current.CorrelationId;
+```
+
+**Where the exception handler goes.** Register it **after** the monitor, as in the usage above. The monitor then
+closes the request with the status the handler chose (a 400 for a validation error, say) and the exception on
+its End line. Registered before the monitor it still reads the same correlation id, but the monitor has
+already closed the request by the time the handler answers, so its End line says 500 whatever the handler
+then sends.
+
 ### Subject and tenant
 
 The subject on each event defaults to the `preferred_username` claim, so it reads as a person rather than an id;
@@ -68,7 +84,14 @@ without one it is the `client_id` claim, and only as a last resort the `sub` cla
 `SubjectId`, is the `sub` claim (or the name identifier), or the `client_id` for a machine acting for itself. A
 request with no caller has `anonymous` as both, so a log or an audit trail never shows a blank — code that
 learns later who is acting, as a sign-in page does, sets them itself. The tenant comes from `options.Tenant` and
-is not set without it. All of it is the ambient `IOperationContext` (Pondhawk.Context): it stays in the process,
+is not set without it — for a tenant carried in the caller's token:
+
+```csharp
+builder.Services.AddPondhawkDiagnostics(options =>
+    options.Tenant = http => http.User.FindFirst("tenant")?.Value);
+```
+
+All of it is the ambient `IOperationContext` (Pondhawk.Context): it stays in the process,
 is stamped on each event by the sink (Watch, CloudWatch), and is there for anything else that reads it.
 
 All three values attach to the request's `Activity`. ASP.NET Core starts one whenever its own logging or a
