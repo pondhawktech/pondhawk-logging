@@ -118,20 +118,24 @@ public class WatchSwitchSourceTests
         source.Lookup("MyApp.Services").Level.ShouldBe(LogLevel.Warning);
     }
 
-    [Fact]
-    public async Task UpdateAsync_LevelAboveCritical_ClampsToCritical()
+    [Theory]
+    [InlineData(0, LogLevel.Trace)]
+    [InlineData(5, LogLevel.Critical)]
+    [InlineData(6, LogLevel.None)]
+    [InlineData(999, LogLevel.None)]
+    [InlineData(-1, LogLevel.Trace)]
+    public async Task UpdateAsync_MapsTheWireLevel_ClampingToTraceThroughNone(int wire, LogLevel expected)
     {
         var handler = new MockHttpHandler();
         handler.RespondWith(HttpStatusCode.OK, CreateSwitchesJson(
-            new SwitchDto { Pattern = "HighLevel", Level = 999, Color = 0 }
+            new SwitchDto { Pattern = "Level", Level = wire, Color = 0 }
         ));
 
         var source = new WatchSwitchSource(CreateClient(handler), "test");
 
         await source.UpdateAsync();
 
-        // Level > 5 should clamp to Critical
-        source.Lookup("HighLevel.Something").Level.ShouldBe(LogLevel.Critical);
+        source.Lookup("Level.Something").Level.ShouldBe(expected);
     }
 
     [Fact]

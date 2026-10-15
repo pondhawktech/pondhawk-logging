@@ -43,6 +43,19 @@ public class AddWatchTests
     }
 
     [Fact]
+    public void SwitchFilter_AtNone_DisablesEveryLevel()
+    {
+        var switches = new SwitchSource();
+        switches.WhenMatched("Silenced", "", LogLevel.None, Color.White);
+        switches.WhenNotMatched(LogLevel.Warning);
+
+        var factory = BuildFactory(switches);
+
+        factory.CreateLogger("Silenced.Component").IsEnabled(LogLevel.Critical).ShouldBeFalse();
+        factory.CreateLogger("Other.Component").IsEnabled(LogLevel.Critical).ShouldBeTrue();
+    }
+
+    [Fact]
     public void AddWatch_WithADestination_RegistersItForResolution()
     {
         // Port 9 (discard) refuses immediately, so the switch source's initial fetch fails fast rather

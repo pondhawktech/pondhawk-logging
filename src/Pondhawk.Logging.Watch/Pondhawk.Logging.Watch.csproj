@@ -35,6 +35,7 @@
     <PackageReference Include="MemoryPack" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
+    <PackageReference Include="Pondhawk.Context" />
     <PackageReference Include="Ulid" />
     <PackageReference Include="ZLogger" />
   </ItemGroup>

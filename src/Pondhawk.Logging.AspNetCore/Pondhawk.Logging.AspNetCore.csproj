@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Pondhawk.Context" />
     <PackageReference Include="Ulid" />
   </ItemGroup>
 
