@@ -32,11 +32,11 @@ Also included: `LogPropertyNames` (the public `Pondhawk.*` log-state property na
 the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum,
 and public `TypeExtensions` (`GetConciseName` / `GetConciseFullName`).
 
-## Vendoring
+## Referencing, vendoring or dropping it
 
-This package is meant to be vendored: copy `src/Pondhawk.Logging` into the application, or reference the
-package — and the application can drop it later without breaking anything else. That works because **no other
-Pondhawk.Logging package references it**. The Watch, CloudWatch and console providers and the ASP.NET Core
+**No other Pondhawk.Logging package references this one**, so an application that uses the API references it
+itself. The usual way is the NuGet package. Vendoring its source — copying `src/Pondhawk.Logging` into the
+application — is an option, and so is dropping it later; neither breaks anything else. The Watch, CloudWatch and console providers and the ASP.NET Core
 diagnostics read what it puts on the log state — names and values — and never its types, so a vendored copy
 beside them gives each type once, with no CS0433 ambiguity.
 

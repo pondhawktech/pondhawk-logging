@@ -10,6 +10,10 @@ The rule, in the user's words: "Pondhawk.Logging is meant to be vendored in to e
 want consumers of Pondhawk.Logging to be capable of dropping all the Pondhawk.Logging dependency without
 breaking the consuming app."
 
+**Corrected by the user, 2026-10-16:** vendoring is *not* a requirement, merely an option. Applications such as
+watch-server's Pump keep using Pondhawk.Logging from NuGet. What the rule needs is that no package references
+it, so an application that does vendor it, or drops it, is not broken by a sink.
+
 Today that does not hold. `Pondhawk.Logging.Watch`, `.CloudWatch` and `.AspNetCore` each have a
 `ProjectReference` to `src/Pondhawk.Logging`, so each package depends on the `Pondhawk.Logging` NuGet
 package. `Pondhawk.Logging.Console` references only ZLogger.
@@ -109,7 +113,7 @@ it back.
 - **Root `CLAUDE.md`:** today it says "the Watch, CloudWatch and AspNetCore packages build on the API".
   Reverse that and update each package's "(references Pondhawk.Logging)" heading.
 - **The rule, written down:**
-  - Pondhawk.Logging is meant to be vendored into each app that uses it.
+  - An app that uses Pondhawk.Logging references it itself: from NuGet as usual, or by vendoring its source.
   - No package in this repository references it.
   - The contract between the API and the sinks is property names and values on the log state, plus the
     probe's Activity property, and nothing else.
@@ -142,8 +146,8 @@ Console and Migration are unchanged.
 - **watch-server** (owned by the watch-server session, once the packages are on NuGet.org):
   - **The Pump** (`src/Pondhawk.Watch.Pump`) references only `Pondhawk.Logging.Watch`, but calls
     `EnterMethod`, `Inspect`, `LogJson`, `LogObject`, `LogSql`, `LogText`, `LogXml` and `LogYaml`. It is
-    the transitive case this plan breaks, so it needs its own `Pondhawk.Logging` 4.0 reference when it
-    moves to Watch 4.0.
+    the transitive case this plan breaks, so it needs its own `Pondhawk.Logging` 4.0 package reference
+    when it moves to Watch 4.0. It keeps using Pondhawk.Logging from NuGet; it does not vendor it.
   - **The Server** already references `Pondhawk.Logging` and `Pondhawk.Logging.CloudWatch` directly. It
     needs only the bumps, to Logging 4.0 and CloudWatch 2.0.
   - **The explorer client** uses no Pondhawk.Logging package and is unaffected.

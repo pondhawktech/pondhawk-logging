@@ -9,8 +9,8 @@ resilience.
 
 The structured logging **API itself** — `EnterMethod`, `Inspect`, `LogObject`, the typed-payload
 helpers, `[Sensitive]` masking, and the `LogPropertyNames` contract — lives in `Pondhawk.Logging`, which
-this package **does not reference**: an application vendors the API or drops it, so no package may depend on
-it. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
+this package **does not reference**: an application references the API itself (from NuGet, or vendored) and can drop
+it, so no package may depend on it. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
 logging guide.
 
 Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Context` (the ambient

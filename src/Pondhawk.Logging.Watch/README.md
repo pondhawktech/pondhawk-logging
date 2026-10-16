@@ -61,7 +61,7 @@ switch-dropped categories at the call site, with no change to calling code.
 
 The logging API is a set of extensions on `ILogger` and lives in `Pondhawk.Logging`
 (`using Pondhawk.Logging;`). This package does not bring it in: reference the `Pondhawk.Logging` package
-or vendor its source. Obtain a logger from the standard `ILoggerFactory`:
+too (or vendor its source). Obtain a logger from the standard `ILoggerFactory`:
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -248,7 +248,7 @@ keeps the event, and the console discards it afterwards.
 
 The logging API types (`LoggingExtensions`, `MethodLogger`, `PayloadType`, `SensitiveAttribute`,
 `LogPropertyNames`, the serializers) live in `Pondhawk.Logging`, which this package does not reference:
-the API is meant to be vendored into each application or dropped, so no package depends on it. This package
+an application that uses the API references it itself — from NuGet, or by vendoring its source — and can drop it, so no package depends on it. This package
 reads the names and values the API puts on the log state, and adds only the Watch-specific pieces: the delivery processor, switching, and the `AddWatch` wiring.
 
 ## Documentation

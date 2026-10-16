@@ -8,7 +8,7 @@ using Xunit;
 namespace Pondhawk.Logging.Watch.Tests;
 
 /// <summary>
-/// The provider does not reference Pondhawk.Logging — an application vendors it or drops it — so it keeps its own
+/// The provider does not reference Pondhawk.Logging — an application references it from NuGet, vendors its source, or drops it — so it keeps its own
 /// copy of what the API writes. These check the copy against the API.
 /// </summary>
 public class ContractTests

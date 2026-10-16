@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Pondhawk.Logging.Console.Tests;
 
-/// <summary>No package may reference Pondhawk.Logging: an application vendors it or drops it.</summary>
+/// <summary>No package may reference Pondhawk.Logging: an application references it from NuGet, vendors its source, or drops it.</summary>
 public class ContractTests
 {
     [Fact]

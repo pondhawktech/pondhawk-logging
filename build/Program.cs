@@ -116,8 +116,8 @@ public sealed class RestoreTask : FrostingTask<BuildContext>
     }
 }
 
-// Pondhawk.Logging is meant to be vendored into each application that uses it, which must be able to drop it
-// without breaking: no other package may reference it, as a project or as a package. Checked here as well as by
+// An application may reference Pondhawk.Logging from NuGet, vendor its source, or drop it, without breaking:
+// so no other package may reference it, as a project or as a package. Checked here as well as by
 // each test project, because an unused reference leaves no trace in the assembly but still becomes a NuGet
 // dependency.
 [TaskName("CheckReferences")]

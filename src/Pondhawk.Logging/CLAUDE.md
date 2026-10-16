@@ -7,8 +7,8 @@ Pondhawk.Logging is the **structured logging API** for Pondhawk, built on
 `[Sensitive]` masking as extensions on the standard `ILogger`. It adds no logger type of its own — code
 logs through the standard `ILogger`, so an app can drop this package and fall back to plain
 `Microsoft.Extensions.Logging` with a configuration change and no code edits. It has **no sink or
-transport**, and **no other package references it**: it is meant to be vendored into each application that
-uses it, and an application must be able to drop it without breaking. Providers such as
+transport**, and **no other package references it**: an application references it from NuGet (the usual
+way), may vendor its source instead, and must be able to drop it without breaking. Providers such as
 [`Pondhawk.Logging.Watch`](../Pondhawk.Logging.Watch/CLAUDE.md) read the names and values it puts on the log
 state and keep their own copies of them (`LogStateContract`, `ProbeContract`), checked against this package
 by their test projects.

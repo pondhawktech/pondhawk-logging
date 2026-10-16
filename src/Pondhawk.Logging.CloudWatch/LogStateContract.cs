@@ -6,7 +6,7 @@ namespace Pondhawk.Logging.CloudWatch;
 /// <summary>
 /// What the Pondhawk.Logging API puts on the log state, as this provider reads it: the property names and the
 /// payload type numbers. A copy rather than a reference, because no package may reference Pondhawk.Logging — an
-/// application vendors it or drops it. The test project checks these against the API's own values.
+/// application references it from NuGet, vendors its source, or drops it. The test project checks these against the API's own values.
 /// </summary>
 internal static class LogStateContract
 {

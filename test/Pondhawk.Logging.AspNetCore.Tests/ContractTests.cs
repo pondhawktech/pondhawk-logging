@@ -12,7 +12,7 @@ using Xunit;
 namespace Pondhawk.Logging.AspNetCore.Tests;
 
 /// <summary>
-/// The middlewares do not reference Pondhawk.Logging — an application vendors it or drops it — so they keep their
+/// The middlewares do not reference Pondhawk.Logging — an application references it from NuGet, vendors its source, or drops it — so they keep their
 /// own copy of the probe mark and of how a JSON payload is written, and take the probe key from the Watch provider
 /// through a keyed service of built-in types. These check each against the other side.
 /// </summary>

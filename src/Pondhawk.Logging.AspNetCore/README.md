@@ -6,7 +6,7 @@ its status and elapsed time, and — when switched on — **dump the whole reque
 
 They log through `Microsoft.Extensions.Logging` under one category, `Pondhawk.Diagnostics.Http`, so they work
 with any provider. The package depends on `Pondhawk.Context` and the ASP.NET Core shared framework, and on no
-sink — and not on `Pondhawk.Logging`, which is meant to be vendored into each application or dropped. The
+sink — and not on `Pondhawk.Logging`: an application that uses the API references it itself (from NuGet, or vendored), and can drop it. The
 request dump is the event `LogJson` writes, built here.
 
 ## Usage
