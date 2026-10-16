@@ -9,11 +9,12 @@ resilience.
 
 The structured logging **API itself** — `EnterMethod`, `Inspect`, `LogObject`, the typed-payload
 helpers, `[Sensitive]` masking, and the `LogPropertyNames` contract — lives in `Pondhawk.Logging`, which
-this package references. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
+this package **does not reference**: an application vendors the API or drops it, so no package may depend on
+it. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
 logging guide.
 
-Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Logging` and
-`Pondhawk.Context` (the ambient `IOperationContext`); no dependency on other Pondhawk packages.
+Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Context` (the ambient
+`IOperationContext`); no dependency on other Pondhawk packages.
 
 ---
 
@@ -200,7 +201,8 @@ using var factory = LoggerFactory.Create(b => b.AddWatch("http://localhost:11000
 ### Logging API ↔ Provider Communication
 
 The logging API in `Pondhawk.Logging` attaches well-known log-state properties, defined by the public
-`LogPropertyNames` contract in that package:
+`LogPropertyNames` contract in that package. This package keeps its own copy (`LogStateContract`, with the
+`PayloadType` numbers it uses), checked against the API by `ContractTests`:
 - `Pondhawk.Nesting` — method tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of `PayloadType` enum
 - `Pondhawk.PayloadContent` — serialized payload string
@@ -264,8 +266,10 @@ src/Pondhawk.Logging.Watch/
 ```
 
 The logging API types (`LoggingExtensions`, `MethodLogger`, `SensitiveAttribute`,
-`PayloadType`, `LogPropertyNames`, `Serializers/*`, `TypeExtensions`) live in `Pondhawk.Logging`, not
-this package.
+`PayloadType`, `LogPropertyNames`, `Serializers/*`, `TypeExtensions`) live in `Pondhawk.Logging`, which this
+package does not reference. `LogStateContract.cs` and `ProbeContract.cs` are its copies of the names and
+values it reads — the log-state properties, and the diagnostic probe's `Activity` property, tag and key
+service — and the test project checks them against the API.
 
 ## Common Mistakes
 

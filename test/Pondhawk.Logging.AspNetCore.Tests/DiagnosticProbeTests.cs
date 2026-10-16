@@ -29,7 +29,7 @@ public class DiagnosticProbeTests : IDisposable
     private readonly ECDsa _watch = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private readonly ProbeKeys _keys;
 
-    public DiagnosticProbeTests() => _keys = new ProbeKeys { Current = new DiagnosticProbeKey(Domain, _watch.ExportSubjectPublicKeyInfo()) };
+    public DiagnosticProbeTests() => _keys = new ProbeKeys { Current = (Domain, _watch.ExportSubjectPublicKeyInfo()) };
 
     public void Dispose()
     {
@@ -37,9 +37,10 @@ public class DiagnosticProbeTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private sealed class ProbeKeys : IDiagnosticProbeKey
+    // Stands in for the Watch provider's key source: the current key, or null before Watch has sent one.
+    private sealed class ProbeKeys
     {
-        public DiagnosticProbeKey Current { get; set; }
+        public (string Domain, ReadOnlyMemory<byte> PublicKey)? Current { get; set; }
     }
 
     // What Watch issues: base64url(payload) "." base64url(ECDSA P-256 signature over the payload's base64url text).
@@ -83,7 +84,9 @@ public class DiagnosticProbeTests : IDisposable
         },
         log: new CapturingLoggerProvider { DiagnosticsLevel = LogLevel.Trace },
         logging: builder => builder.AddFilter((_, level) => level >= LogLevel.Warning || DiagnosticProbe.IsActive),
-        services: registerKeys ? services => services.AddSingleton<IDiagnosticProbeKey>(_keys) : null);
+        services: registerKeys
+            ? services => services.AddKeyedSingleton<Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>>("Pondhawk.DiagnosticProbeKey", (_, _) => () => _keys.Current)
+            : null);
 
     private static async Task<HttpResponseMessage> Get(DiagnosticsApp app, string token = null, string user = null)
     {

@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pondhawk.Logging.Watch\Pondhawk.Logging.Watch.csproj" />
+    <!-- The packages do not reference the API (an application vendors it or drops it); the tests check them against it. -->
+    <ProjectReference Include="..\..\src\Pondhawk.Logging\Pondhawk.Logging.csproj" />
   </ItemGroup>
 
 </Project>

@@ -23,7 +23,7 @@ namespace Pondhawk.Logging.Watch;
 /// Thread-safety: All operations are thread-safe. Polling runs on a background task.
 /// </para>
 /// </remarks>
-public class WatchSwitchSource : SwitchSource, IDiagnosticProbeKey, IAsyncDisposable
+public class WatchSwitchSource : SwitchSource, IAsyncDisposable
 {
     private readonly HttpClient _client;
     private readonly WatchDestination _destination;
@@ -42,7 +42,7 @@ public class WatchSwitchSource : SwitchSource, IDiagnosticProbeKey, IAsyncDispos
 
     // The domain's diagnostic probe key, delivered with the switches. Kept through a failed poll and a 304,
     // dropped on a rebind: a key belongs to the domain it came from.
-    private DiagnosticProbeKey? _probeKey;
+    private ProbeKey? _probeKey;
     private long _eTagBindingVersion;
 
     /// <summary>
@@ -183,18 +183,23 @@ public class WatchSwitchSource : SwitchSource, IDiagnosticProbeKey, IAsyncDispos
         }
     }
 
-    /// <inheritdoc />
-    DiagnosticProbeKey? IDiagnosticProbeKey.Current => Volatile.Read(ref _probeKey);
+    /// <summary>
+    /// The domain's diagnostic probe key — its name and the public key (SubjectPublicKeyInfo) a probe token's
+    /// signature is checked against — or null when Watch has sent none for the domain bound now. The shape is the
+    /// one registered under <see cref="ProbeContract.KeyServiceKey"/>.
+    /// </summary>
+    internal (string Domain, ReadOnlyMemory<byte> PublicKey)? CurrentProbeKey =>
+        Volatile.Read(ref _probeKey) is { } key ? (key.Domain, key.PublicKey) : null;
 
     // A key that is not base64 is no key: a probe token cannot be checked against it, so none is accepted.
-    private static DiagnosticProbeKey? ProbeKeyOf(string? encoded, string domain)
+    private static ProbeKey? ProbeKeyOf(string? encoded, string domain)
     {
         if (string.IsNullOrEmpty(encoded))
             return null;
 
         var bytes = new byte[encoded.Length];
         return Convert.TryFromBase64String(encoded, bytes, out var written)
-            ? new DiagnosticProbeKey(domain, bytes.AsMemory(0, written))
+            ? new ProbeKey(domain, bytes.AsMemory(0, written))
             : null;
     }
 
@@ -281,4 +286,7 @@ public class WatchSwitchSource : SwitchSource, IDiagnosticProbeKey, IAsyncDispos
 
         base.Dispose(disposing);
     }
+
+    // Held as one reference so a reader never sees a domain with another domain's key.
+    private sealed record ProbeKey(string Domain, ReadOnlyMemory<byte> PublicKey);
 }

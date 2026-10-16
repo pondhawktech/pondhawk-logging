@@ -118,11 +118,13 @@ public static class WatchLoggingBuilderExtensions
         builder.AddFilter((category, level) =>
             string.IsNullOrWhiteSpace(category)
             || level >= switches.Lookup(category).Level
-            || (level < LogLevel.None && DiagnosticProbe.IsActive));
+            || (level < LogLevel.None && ProbeContract.IsActive));
 
-        // The key a probe token is checked against comes with the switches.
-        if (switches is IDiagnosticProbeKey probeKey)
-            builder.Services.TryAddSingleton(probeKey);
+        // The key a probe token is checked against comes with the switches. It goes to the ASP.NET Core
+        // diagnostics as a keyed delegate of built-in types, so neither package needs a type from the other.
+        if (switches is WatchSwitchSource watch)
+            builder.Services.TryAddKeyedSingleton<Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>>(
+                ProbeContract.KeyServiceKey, (_, _) => () => watch.CurrentProbeKey);
 
         builder.AddZLoggerLogProcessor((_, _) =>
             new WatchLoggerProcessor(

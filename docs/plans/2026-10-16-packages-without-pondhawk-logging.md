@@ -1,7 +1,8 @@
 # Plan: no package references Pondhawk.Logging
 
-Status: **PLAN** — 2026-10-16. Nothing implemented yet. Decided 2026-10-16: the probe key goes through a
-keyed DI service (§3a), and `DiagnosticProbe` stays public in Pondhawk.Logging (§2).
+Status: **IMPLEMENTED** — 2026-10-16. Decided 2026-10-16: the probe key goes through a keyed DI service
+(§3a), and `DiagnosticProbe` stays public in Pondhawk.Logging (§2). What differed from the plan is under
+"As built" at the end.
 
 ## Why
 
@@ -146,3 +147,30 @@ Console and Migration are unchanged.
   - **The Server** already references `Pondhawk.Logging` and `Pondhawk.Logging.CloudWatch` directly. It
     needs only the bumps, to Logging 4.0 and CloudWatch 2.0.
   - **The explorer client** uses no Pondhawk.Logging package and is unaffected.
+
+## As built (2026-10-16)
+
+- **The copies** are `LogStateContract` (Watch, CloudWatch) and `ProbeContract` (Watch: `IsActive`, `Tag`,
+  `KeyServiceKey`; AspNetCore: `Begin`, `KeySource`, `KeyServiceKey`). AspNetCore's payload helper is
+  `JsonPayload.Log`. CloudWatch's internal `CloudWatchEvent.PayloadType` is now an `int`.
+- **The key** is `WatchSwitchSource.CurrentProbeKey` (internal), registered by `AddWatch` as a keyed
+  `Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>` under `"Pondhawk.DiagnosticProbeKey"`.
+  `ProbeContract.KeySource` resolves it only through `IKeyedServiceProvider`, so a container without keyed
+  services gets no key instead of an exception. The Autofac version that supports keyed services was not
+  checked.
+- **`ProbeToken` was already internal**, so its signature change (an internal `ProbeKey` record) is not public.
+  `WatchSwitchSource` no longer implements `IDiagnosticProbeKey`; that is the public change in Watch.
+- **Tests:** a `ContractTests` class in the Watch, CloudWatch, AspNetCore and Console test projects. Each checks
+  that its package's assembly does not reference Pondhawk.Logging; Watch and CloudWatch check their copies
+  against `LogPropertyNames` and `PayloadType`; Watch and AspNetCore check the probe mark against
+  `DiagnosticProbe` both ways; AspNetCore checks `JsonPayload.Log` against `LogJson`, and finds the key
+  `AddWatch` registers (its test project now references Watch for that).
+- **Build:** the Cake `CheckReferences` task runs before `Build` and fails on a `ProjectReference` or
+  `PackageReference` to Pondhawk.Logging from any other source project. Checked by adding one back: it fails.
+- **Checked end to end**, with the packages packed locally:
+  - none of Watch, CloudWatch, AspNetCore or Console lists Pondhawk.Logging as a dependency;
+  - an ASP.NET Core app that vendors `src/Pondhawk.Logging` beside all four builds with no warnings, and its
+    `LogJson`, `WarningWithContext` and `EnterMethod` calls reach the console;
+  - the same app without Pondhawk.Logging builds and logs through plain Microsoft.Extensions.Logging;
+  - the vendoring app against the published packages (Watch 3.4.66 and the rest) fails with CS0121
+    ambiguity errors, which is the problem this plan fixes.

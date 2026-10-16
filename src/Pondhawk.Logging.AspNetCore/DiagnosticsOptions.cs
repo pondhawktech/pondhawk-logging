@@ -100,7 +100,7 @@ public sealed class DiagnosticsOptions
 
     /// <summary>
     /// Whether a diagnostic probe token is honoured. On by default, but a token is only ever accepted when a
-    /// provider supplies the key it is checked against (<see cref="IDiagnosticProbeKey"/>; the Watch provider
+    /// provider supplies the key it is checked against (a keyed service; the Watch provider
     /// does): a probed request then logs at Trace whatever the switches say, request dump included.
     /// </summary>
     public bool Probe { get; set; } = true;

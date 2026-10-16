@@ -116,8 +116,35 @@ public sealed class RestoreTask : FrostingTask<BuildContext>
     }
 }
 
+// Pondhawk.Logging is meant to be vendored into each application that uses it, which must be able to drop it
+// without breaking: no other package may reference it, as a project or as a package. Checked here as well as by
+// each test project, because an unused reference leaves no trace in the assembly but still becomes a NuGet
+// dependency.
+[TaskName("CheckReferences")]
+public sealed class CheckReferencesTask : FrostingTask<BuildContext>
+{
+    public override void Run(BuildContext context)
+    {
+        var offenders = context.SourceProjects
+            .Where(project => !project.EndsWith("/Pondhawk.Logging.csproj", StringComparison.Ordinal))
+            .SelectMany(project => XDocument.Load(project).Descendants()
+                .Where(e => e.Name.LocalName is "ProjectReference" or "PackageReference")
+                .Select(e => (string?)e.Attribute("Include") ?? string.Empty)
+                .Where(include => include.Replace('\\', '/').EndsWith("/Pondhawk.Logging.csproj", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(include, "Pondhawk.Logging", StringComparison.OrdinalIgnoreCase))
+                .Select(include => $"{project} references {include}"))
+            .ToList();
+
+        if (offenders.Count > 0)
+            throw new InvalidOperationException(
+                "No package may reference Pondhawk.Logging (see CLAUDE.md):" + Environment.NewLine
+                + string.Join(Environment.NewLine, offenders));
+    }
+}
+
 [TaskName("Build")]
 [IsDependentOn(typeof(RestoreTask))]
+[IsDependentOn(typeof(CheckReferencesTask))]
 public sealed class BuildTask : FrostingTask<BuildContext>
 {
     public override void Run(BuildContext context)

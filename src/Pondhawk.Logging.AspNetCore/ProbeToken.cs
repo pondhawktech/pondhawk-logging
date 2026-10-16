@@ -27,7 +27,7 @@ internal static class ProbeToken
     private const int SignatureLength = 64;
 
     /// <summary>Checks <paramref name="token"/> against <paramref name="key"/> at <paramref name="now"/>.</summary>
-    public static Check Verify(string token, DiagnosticProbeKey? key, DateTimeOffset now)
+    public static Check Verify(string token, ProbeKey? key, DateTimeOffset now)
     {
         try
         {
@@ -40,7 +40,7 @@ internal static class ProbeToken
         }
     }
 
-    private static Check VerifyCore(string token, DiagnosticProbeKey? key, DateTimeOffset now)
+    private static Check VerifyCore(string token, ProbeKey? key, DateTimeOffset now)
     {
         if (token.Length > MaxLength)
             return Check.Refused("too long");
@@ -117,6 +117,9 @@ internal static class ProbeToken
         bytes = [];
         return false;
     }
+
+    /// <summary>A domain's probe key from Watch: the domain a token must name, and the public key (SubjectPublicKeyInfo).</summary>
+    internal sealed record ProbeKey(string Domain, ReadOnlyMemory<byte> PublicKey);
 
     /// <summary>The outcome: accepted (with the user it is bound to, if any) or refused, and why.</summary>
     internal sealed record Check(bool IsAccepted, string? Reason, string? TokenId, string? Subject)

@@ -99,7 +99,7 @@ internal static class CloudWatchEventFormatter
 
         if (logEvent.Exception is null)
         {
-            if (logEvent.PayloadType == PayloadType.Json && TryParse(logEvent.Payload, out var payload))
+            if (logEvent.PayloadType == LogStateContract.JsonPayload && TryParse(logEvent.Payload, out var payload))
             {
                 json = payload;
             }

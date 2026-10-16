@@ -520,7 +520,7 @@ public class WatchSwitchSourceTests
 
         await source.UpdateAsync();
 
-        var key = ((IDiagnosticProbeKey)source).Current.ShouldNotBeNull();
+        var key = source.CurrentProbeKey.ShouldNotBeNull();
         key.Domain.ShouldBe("my-domain");
         key.PublicKey.ToArray().ShouldBe(new byte[] { 1, 2, 3 });
     }
@@ -536,7 +536,7 @@ public class WatchSwitchSourceTests
 
         await source.UpdateAsync();
 
-        ((IDiagnosticProbeKey)source).Current.ShouldBeNull();
+        source.CurrentProbeKey.ShouldBeNull();
         source.Version.ShouldBe(1);   // the switches still apply
     }
 
@@ -551,7 +551,7 @@ public class WatchSwitchSourceTests
         handler.RespondWith(HttpStatusCode.InternalServerError);
         await source.UpdateAsync();
 
-        ((IDiagnosticProbeKey)source).Current.ShouldNotBeNull();
+        source.CurrentProbeKey.ShouldNotBeNull();
     }
 
     [Fact]
@@ -567,6 +567,6 @@ public class WatchSwitchSourceTests
         handler.RespondWith(HttpStatusCode.InternalServerError);
         await source.UpdateAsync();
 
-        ((IDiagnosticProbeKey)source).Current.ShouldBeNull();
+        source.CurrentProbeKey.ShouldBeNull();
     }
 }

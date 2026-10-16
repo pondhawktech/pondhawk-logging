@@ -25,10 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Pondhawk.Logging\Pondhawk.Logging.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Pondhawk.Context" />
     <PackageReference Include="Ulid" />
   </ItemGroup>

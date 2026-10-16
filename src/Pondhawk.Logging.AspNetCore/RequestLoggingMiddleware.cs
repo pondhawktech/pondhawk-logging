@@ -60,7 +60,7 @@ public sealed class RequestLoggingMiddleware
 
         var request = await HttpDescriber.DescribeRequestAsync(context.Request, _options, context.RequestAborted).ConfigureAwait(false);
 
-        _logger.LogJson(LogLevel.Debug, $"HTTP {method} {path}", request);
+        JsonPayload.Log(_logger, LogLevel.Debug, $"HTTP {method} {path}", request);
 
         var capture = _options.CaptureResponseBody && HttpDescriber.Cap(_options) > 0
             ? new ResponseCaptureStream(context.Response, HttpDescriber.Cap(_options))
@@ -84,7 +84,7 @@ public sealed class RequestLoggingMiddleware
 
             var response = HttpDescriber.DescribeResponse(context.Response, _options, capture, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
 
-            _logger.LogJson(LogLevel.Debug, $"HTTP {method} {path} -> {context.Response.StatusCode}", response);
+            JsonPayload.Log(_logger, LogLevel.Debug, $"HTTP {method} {path} -> {context.Response.StatusCode}", response);
         }
         finally
         {

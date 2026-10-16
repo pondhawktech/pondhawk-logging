@@ -205,7 +205,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             Category = category,
             Level = (int)info.LogLevel,
             Color = sw.Color.ToArgb(),
-            Tag = DiagnosticProbe.IsActive ? DiagnosticProbe.Tag : sw.Tag,
+            Tag = ProbeContract.IsActive ? ProbeContract.Tag : sw.Tag,
             Title = entry.ToString(),
             CorrelationId = correlationId,
             Occurred = info.Timestamp.Utc.UtcDateTime,
@@ -220,16 +220,16 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
             switch (key)
             {
-                case LogPropertyNames.Nesting when value is int nesting:
+                case LogStateContract.Nesting when value is int nesting:
                     logEvent.Nesting = nesting;
                     break;
-                case LogPropertyNames.PayloadType when value is int payloadType:
+                case LogStateContract.PayloadType when value is int payloadType:
                     logEvent.Type = payloadType;
                     break;
-                case LogPropertyNames.PayloadContent:
+                case LogStateContract.PayloadContent:
                     logEvent.Payload = value as string ?? value?.ToString();
                     break;
-                case LogPropertyNames.ErrorContext:
+                case LogStateContract.ErrorContext:
                     errorContext = value as string ?? value?.ToString();
                     break;
             }
@@ -242,7 +242,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         {
             var exception = info.Exception;
             logEvent.ErrorType = exception.GetType().FullName ?? exception.GetType().Name;
-            logEvent.Type = (int)PayloadType.Text;
+            logEvent.Type = LogStateContract.TextPayload;
             logEvent.Payload = errorContext is null
                 ? exception.ToString()
                 : ComposeErrorPayload(errorContext, exception);
@@ -250,7 +250,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         else if (logEvent.Payload is null && errorContext is not null)
         {
             // Context without an exception: nothing to interleave it with, so send it as the JSON it is.
-            logEvent.Type = (int)PayloadType.Json;
+            logEvent.Type = LogStateContract.JsonPayload;
             logEvent.Payload = errorContext;
         }
 

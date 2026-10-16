@@ -89,7 +89,10 @@ public class AddWatchTests
 
         using var provider = services.BuildServiceProvider();
 
-        provider.GetService<IDiagnosticProbeKey>().ShouldNotBeNull();
+        // Under the key and in the shape the ASP.NET Core diagnostics resolve, from built-in types only.
+        provider.GetKeyedService<Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>>("Pondhawk.DiagnosticProbeKey")
+            .ShouldNotBeNull()
+            .Invoke().ShouldBeNull();   // no key until Watch sends one
     }
 
     [Fact]
