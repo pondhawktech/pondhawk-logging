@@ -40,23 +40,13 @@ public class PayloadAndReportTests
     public Task An_Error_or_WarningWithContext_with_a_string_message_carries_over(string body) =>
         MigrationTest.NoneAsync(Code(body), "PHLM008");
 
-    [Fact]
-    public Task InfoWithContext_logs_the_context_then_the_message() =>
+    [Theory]
+    [InlineData("""logger.InfoWithContext(state, "Placing")""", """logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, state, "Placing")""")]
+    [InlineData("""Action log = () => logger.InfoWithContext(state, "Placing")""", """Action log = () => logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, state, "Placing")""")]
+    public Task InfoWithContext_becomes_one_LogWithContext_call(string fabrica, string logging) =>
         MigrationTest.RunAsync(
-            Code("""{|PHLM008:logger.InfoWithContext(state, "Placing")|};"""),
-            Code("""
-                {
-                            logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Information, "Context", state);
-                            logger.LogInformation("Placing");
-                        }
-                """),
-            "PHLM008");
-
-    [Fact]
-    public Task An_InfoWithContext_in_an_expression_logs_the_message_and_marks_the_lost_context() =>
-        MigrationTest.RunAsync(
-            Code("""Action log = () => {|PHLM008:logger.InfoWithContext(state, "Placing")|};"""),
-            Code("""Action log = () => logger.LogInformation("Placing") /* TODO(Fabrica.Watch migration): the context object is no longer logged; log it with LogObject(LogLevel.Information, "Context", state) */;"""),
+            Code(fabrica.Replace("logger.InfoWithContext", "{|PHLM008:logger.InfoWithContext", StringComparison.Ordinal) + "|};"),
+            Code(logging + ";"),
             "PHLM008");
 
     [Theory]
@@ -92,15 +82,14 @@ public class PayloadAndReportTests
             "PHLM020");
 
     [Fact]
-    public Task An_event_with_context_below_warning_logs_the_context_then_the_message() =>
+    public Task An_event_with_context_below_warning_becomes_LogWithContext() =>
         MigrationTest.RunAsync(
             Code("""
                 var e = {|PHLM020:logger.CreateEvent(Level.Info, "Retrying", ex, state)|};
                         {|PHLM020:logger.LogEvent(e)|};
                 """),
             Code("""
-                logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Information, "Context", state);
-                        logger.LogInformation(ex, "Retrying");
+                logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, ex, state, "Retrying");
                 """),
             "PHLM020");
 

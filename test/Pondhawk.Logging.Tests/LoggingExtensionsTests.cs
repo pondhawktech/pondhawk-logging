@@ -320,6 +320,33 @@ public class LoggingExtensionsTests
         CollectingLogger.Prop(e, LogPropertyNames.ErrorContext).ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData(LogLevel.Trace)]
+    [InlineData(LogLevel.Debug)]
+    [InlineData(LogLevel.Information)]
+    public void LogWithContext_EmitsAtTheGivenLevel_WithOrWithoutAnException(LogLevel level)
+    {
+        var logger = new CollectingLogger();
+        var cause = new InvalidOperationException("boom");
+
+        logger.LogWithContext(level, new { InstanceId = "i-0abc" }, "Placing");
+        logger.LogWithContext(level, cause, new { InstanceId = "i-0def" }, "Placing failed");
+        logger.LogWithContext(level, cause, "Retrying");
+
+        logger.Entries.Count.ShouldBe(3);
+        logger.Entries.ShouldAllBe(e => e.Level == level);
+
+        logger.Entries[0].Exception.ShouldBeNull();
+        ((string)CollectingLogger.Prop(logger.Entries[0], LogPropertyNames.ErrorContext)).ShouldContain("i-0abc");
+
+        logger.Entries[1].Exception.ShouldBeSameAs(cause);
+        ((string)CollectingLogger.Prop(logger.Entries[1], LogPropertyNames.ErrorContext)).ShouldContain("i-0def");
+
+        // (level, Exception, string) binds to the exception overload: the cause, never serialized as context.
+        logger.Entries[2].Exception.ShouldBeSameAs(cause);
+        CollectingLogger.Prop(logger.Entries[2], LogPropertyNames.ErrorContext).ShouldBeNull();
+    }
+
     [Fact]
     public void WithContext_WhenLevelDisabled_SerializesNothing()
     {
@@ -332,6 +359,8 @@ public class LoggingExtensionsTests
         errorsOnly.WarningWithContext(new InvalidOperationException(), "dropped");
         none.ErrorWithContext(context, "dropped");
         none.ErrorWithContext(new InvalidOperationException(), "dropped");
+        errorsOnly.LogWithContext(LogLevel.Information, context, "dropped");
+        errorsOnly.LogWithContext(LogLevel.Debug, new InvalidOperationException(), context, "dropped");
 
         errorsOnly.Entries.ShouldBeEmpty();
         none.Entries.ShouldBeEmpty();

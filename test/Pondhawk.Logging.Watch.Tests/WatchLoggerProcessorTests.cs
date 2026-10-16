@@ -518,6 +518,21 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Delivers_LogWithContext_AtInformation_AsAJsonPayload()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("C").LogWithContext(LogLevel.Information, new { InstanceId = "i-0abc" }, "Registered");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Level.ShouldBe((int)LogLevel.Information);
+        e.Type.ShouldBe((int)PayloadType.Json);
+        e.Payload.ShouldContain("i-0abc");
+    }
+
+    [Fact]
     public async Task Delivers_WarningWithContext_WithAnException_AsOnePayloadCarryingBoth()
     {
         var handler = new MockHttpHandler();

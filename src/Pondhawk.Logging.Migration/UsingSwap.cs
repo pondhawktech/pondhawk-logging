@@ -31,7 +31,7 @@ internal static class UsingSwap
     private static readonly HashSet<string> PondhawkNames = new(StringComparer.Ordinal)
     {
         "EnterMethod", "GetLogger", "Inspect", "LogObject", "LogJson", "LogSql", "LogXml", "LogYaml", "LogText",
-        "ErrorWithContext", "WarningWithContext", "LoggingFactoryLocator", "Sensitive", "SensitiveAttribute", "PayloadType", "MethodLogger",
+        "ErrorWithContext", "WarningWithContext", "LogWithContext", "LoggingFactoryLocator", "Sensitive", "SensitiveAttribute", "PayloadType", "MethodLogger",
     };
 
     /// <summary>

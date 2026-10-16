@@ -195,7 +195,7 @@ plain `1` is refused — logged once, the request otherwise unaffected. See the
 | `LogJson/LogXml(title, text, pretty)` | no `pretty`: the content is logged as given |
 | `ErrorWithContext(ex, context, message?)`, `WarningWithContext(…)` | the same method — the message is required |
 | `ErrorWithContext(context, message)`, `WarningWithContext(context, message)` (some copies) | the same method, unchanged — still one event |
-| `InfoWithContext` and other levels | `LogObject(LogLevel.X, "Context", context)` then `LogX(…)` |
+| `InfoWithContext` and other levels | `LogWithContext(LogLevel.X, [ex,] context, message)` — one event |
 | `CreateEvent` + `LogEvent` | a payload method at the event's level, or `ErrorWithContext`/`WarningWithContext` |
 | `this.GetLogger()`, `this.EnterMethod<T>()` | `this.GetLogger()`, `this.EnterMethod()` |
 | `WatchFactoryLocator.Factory.GetLogger(…)` — last `SetFactory` wins | `LoggingFactoryLocator.GetFactory().CreateLogger(…)` — set once |
@@ -218,7 +218,7 @@ Also worth knowing:
 Fabrica.Watch is often vendored and changed. The analyzer recognises it by name, finds arguments by parameter
 rather than position, and knows two common changes: template overloads renamed `DebugFormat`, `WarningFormat` …,
 and `…WithContext(context, message)` overloads without an exception (at Error and Warning they carry over
-unchanged; `InfoWithContext` becomes two calls). Anything else such a copy adds is reported
+unchanged; `InfoWithContext` becomes `LogWithContext(LogLevel.Information, …)`). Anything else such a copy adds is reported
 as PHLM024 for you to migrate. Fabrica.Watch's own source, vendored into the solution, is never reported or
 rewritten.
 

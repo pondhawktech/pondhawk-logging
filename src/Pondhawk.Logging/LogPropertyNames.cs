@@ -23,8 +23,8 @@ public static class LogPropertyNames
     public const string PayloadContent = "Pondhawk.PayloadContent";
 
     /// <summary>
-    /// The context object attached by <c>ErrorWithContext</c> or <c>WarningWithContext</c>, serialized to JSON —
-    /// at Error or Warning, with or without an exception. A sink renders it alongside the exception detail on the
+    /// The context object attached by <c>ErrorWithContext</c>, <c>WarningWithContext</c> or <c>LogWithContext</c>,
+    /// serialized to JSON — at any level, with or without an exception. A sink renders it alongside the exception detail on the
     /// same event, or on its own when there is no exception.
     /// </summary>
     public const string ErrorContext = "Pondhawk.ErrorContext";

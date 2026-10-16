@@ -218,7 +218,7 @@ public static class LoggingExtensions
     /// <param name="context">The state surrounding the failure; serialized to JSON.</param>
     /// <param name="message">The log message title.</param>
     public static void ErrorWithContext(this ILogger logger, Exception cause, object context, string message)
-        => LogWithContext(logger, LogLevel.Error, cause, context, message);
+        => EmitWithContext(logger, LogLevel.Error, cause, context, message);
 
     /// <summary>
     /// Logs an error with no exception, carrying the state that explains it: <paramref name="context"/> is
@@ -228,7 +228,7 @@ public static class LoggingExtensions
     /// <param name="context">The state surrounding the failure; serialized to JSON.</param>
     /// <param name="message">The log message title.</param>
     public static void ErrorWithContext(this ILogger logger, object context, string message)
-        => LogWithContext(logger, LogLevel.Error, null, context, message);
+        => EmitWithContext(logger, LogLevel.Error, null, context, message);
 
     /// <summary>
     /// Logs an error with the exception and no context. It exists so that a two-argument call with an
@@ -239,7 +239,7 @@ public static class LoggingExtensions
     /// <param name="cause">The exception being reported.</param>
     /// <param name="message">The log message title.</param>
     public static void ErrorWithContext(this ILogger logger, Exception cause, string message)
-        => LogWithContext(logger, LogLevel.Error, cause, null, message);
+        => EmitWithContext(logger, LogLevel.Error, cause, null, message);
 
     /// <summary>
     /// Logs a warning carrying both the exception and the state that surrounds it: <paramref name="context"/>
@@ -251,7 +251,7 @@ public static class LoggingExtensions
     /// <param name="context">The state surrounding the problem; serialized to JSON.</param>
     /// <param name="message">The log message title.</param>
     public static void WarningWithContext(this ILogger logger, Exception cause, object context, string message)
-        => LogWithContext(logger, LogLevel.Warning, cause, context, message);
+        => EmitWithContext(logger, LogLevel.Warning, cause, context, message);
 
     /// <summary>
     /// Logs a warning with no exception, carrying the state that explains it: <paramref name="context"/> is
@@ -261,7 +261,7 @@ public static class LoggingExtensions
     /// <param name="context">The state surrounding the problem; serialized to JSON.</param>
     /// <param name="message">The log message title.</param>
     public static void WarningWithContext(this ILogger logger, object context, string message)
-        => LogWithContext(logger, LogLevel.Warning, null, context, message);
+        => EmitWithContext(logger, LogLevel.Warning, null, context, message);
 
     /// <summary>
     /// Logs a warning with the exception and no context. It exists so that a two-argument call with an
@@ -272,9 +272,45 @@ public static class LoggingExtensions
     /// <param name="cause">The exception being reported.</param>
     /// <param name="message">The log message title.</param>
     public static void WarningWithContext(this ILogger logger, Exception cause, string message)
-        => LogWithContext(logger, LogLevel.Warning, cause, null, message);
+        => EmitWithContext(logger, LogLevel.Warning, cause, null, message);
 
-    private static void LogWithContext(ILogger logger, LogLevel level, Exception? cause, object? context, string message)
+    /// <summary>
+    /// Logs at <paramref name="level"/> carrying both the exception and the state that surrounds it, as
+    /// <see cref="ErrorWithContext(ILogger, Exception, object, string)"/> does at Error — for the levels that have no
+    /// method of their own.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The level to log at.</param>
+    /// <param name="cause">The exception being reported.</param>
+    /// <param name="context">The surrounding state; serialized to JSON.</param>
+    /// <param name="message">The log message title.</param>
+    public static void LogWithContext(this ILogger logger, LogLevel level, Exception cause, object context, string message)
+        => EmitWithContext(logger, level, cause, context, message);
+
+    /// <summary>
+    /// Logs at <paramref name="level"/> with no exception, carrying the state that explains the event:
+    /// <paramref name="context"/> is serialized to JSON and attached as <see cref="LogPropertyNames.ErrorContext"/>.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The level to log at.</param>
+    /// <param name="context">The surrounding state; serialized to JSON.</param>
+    /// <param name="message">The log message title.</param>
+    public static void LogWithContext(this ILogger logger, LogLevel level, object context, string message)
+        => EmitWithContext(logger, level, null, context, message);
+
+    /// <summary>
+    /// Logs at <paramref name="level"/> with the exception and no context. It exists so that a call with an exception
+    /// and a message binds here rather than to <see cref="LogWithContext(ILogger, LogLevel, object, string)"/>, which
+    /// would serialize the exception as the context. The message is a title, not a template.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The level to log at.</param>
+    /// <param name="cause">The exception being reported.</param>
+    /// <param name="message">The log message title.</param>
+    public static void LogWithContext(this ILogger logger, LogLevel level, Exception cause, string message)
+        => EmitWithContext(logger, level, cause, null, message);
+
+    private static void EmitWithContext(ILogger logger, LogLevel level, Exception? cause, object? context, string message)
     {
         if (!logger.IsEnabled(level))
             return;

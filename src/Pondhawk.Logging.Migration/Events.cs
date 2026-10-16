@@ -16,8 +16,7 @@ namespace Pondhawk.Logging.Migration;
 /// An event built by hand and logged at once (PHLM020) — <c>var ev = logger.CreateEvent(…); logger.LogEvent(ev);</c>,
 /// <c>ev</c> used for nothing else — becomes the one call that says the same: a typed payload's
 /// <c>LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload)</c>, an object's <c>LogObject(level, title, value)</c>,
-/// an exception with context's <c>ErrorWithContext</c> or <c>WarningWithContext</c> (or <c>LogObject</c> and
-/// <c>LogX(exception, …)</c> below Warning),
+/// an exception with context's <c>ErrorWithContext</c>, <c>WarningWithContext</c> or <c>LogWithContext(level, …)</c>,
 /// or a title's <c>LogX(title)</c>. An event changed, passed on, or with a level or payload type that is not a
 /// constant stays reported only.
 /// </summary>
@@ -148,7 +147,7 @@ internal static class Events
                 case 4:
                     return new Plan((logger, a) => level.Level is "Error" or "Warning"
                         ? [logger + "." + level.Level + "WithContext(" + a[2] + ", " + a[3] + ", " + Title(a) + ");"]
-                        : [logger + ".LogObject(" + logLevel + ", \"Context\", " + a[3] + ");", logger + "." + level.Method + "(" + a[2] + ", " + Message(titleKind, a[1]) + ");"]);
+                        : [logger + ".LogWithContext(" + logLevel + ", " + a[2] + ", " + a[3] + ", " + Title(a) + ");"]);
 
                 default:
                     return null;
