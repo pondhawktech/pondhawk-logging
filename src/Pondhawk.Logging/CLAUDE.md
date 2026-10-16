@@ -213,16 +213,23 @@ logger.LogObject(LogLevel.Error, "result", result);
 logger.LogYaml(LogLevel.Information, "Appliance Info", yaml);
 ```
 
-### Error Context
+### Error and Warning Context
 
 ```csharp
 logger.ErrorWithContext(cause, new { InstanceId = id, Arn = arn }, "Failed to deregister");
+logger.WarningWithContext(cause, new { InstanceId = id }, "Drain timed out");
+logger.ErrorWithContext(new { InstanceId = id }, "Drain failed");          // no exception
+logger.WarningWithContext(new { InstanceId = id }, "Nothing was deregistered");
 ```
 
-Serializes `context` to JSON, attaches it as `Pondhawk.ErrorContext`, and logs at Error with the
-exception. Folding the state into the message string loses its structure and a separate `LogObject` call
+Serializes `context` to JSON, attaches it as `Pondhawk.ErrorContext`, and logs at Error or Warning with the
+exception, when there is one. The message is a title, not a template. `ErrorWithContext(cause, message)` and
+`WarningWithContext(cause, message)` log the exception with no context: without them a two-argument call with an
+exception would bind to `(object context, string message)` and serialize the exception as the context. A context
+typed `object` that holds an exception still goes in as context — there is no runtime check. Folding the state into the message string loses its structure and a separate `LogObject` call
 detaches it from the exception it explains; this keeps both on one event. A sink renders the two together
-— the Watch provider composes them into its single payload slot, context first.
+— the Watch provider composes them into its single payload slot, context first; with no exception it sends the
+context as a Json payload, and CloudWatch writes it as `Context` either way.
 
 ---
 
@@ -242,7 +249,7 @@ read. All are prefixed `Pondhawk.`:
 - `Pondhawk.Nesting` — method-tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of the `PayloadType` enum
 - `Pondhawk.PayloadContent` — serialized payload string
-- `Pondhawk.ErrorContext` — the `ErrorWithContext` context object, serialized to JSON
+- `Pondhawk.ErrorContext` — the `ErrorWithContext`/`WarningWithContext` context object, serialized to JSON (at Error or Warning, with or without an exception)
 - `Pondhawk.CorrelationId` — correlation identifier
 
 ## Project Structure

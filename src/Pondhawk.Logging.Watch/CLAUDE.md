@@ -204,7 +204,7 @@ The logging API in `Pondhawk.Logging` attaches well-known log-state properties, 
 - `Pondhawk.Nesting` — method tracing depth (+1 enter, -1 exit)
 - `Pondhawk.PayloadType` — int value of `PayloadType` enum
 - `Pondhawk.PayloadContent` — serialized payload string
-- `Pondhawk.ErrorContext` — the `ErrorWithContext` context object, serialized to JSON
+- `Pondhawk.ErrorContext` — the `ErrorWithContext`/`WarningWithContext` context object, serialized to JSON; sent before the exception detail in one Text payload, or as a Json payload when there is no exception
 
 `WatchLoggerProcessor` reads these from the ZLogger entry's structured state and maps them to the Watch
 `LogEvent` model.

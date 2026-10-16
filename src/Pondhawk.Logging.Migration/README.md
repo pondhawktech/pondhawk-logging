@@ -46,7 +46,7 @@ Search for `TODO(Fabrica.Watch migration)` when the run is done.
 | PHLM005 | `IsTraceEnabled` … `IsErrorEnabled` | `IsEnabled(LogLevel.Trace)` … `IsEnabled(LogLevel.Error)` (`Info` → `Information`) |
 | PHLM006 | `LeaveMethod()`, a `logger.EnterMethod();` a `LeaveMethod` closes, and `using` on a logger that is not a method trace | `LeaveMethod` goes; the `EnterMethod` becomes a `using` declaration; a `try/finally` that only closed the trace goes with it (a `catch` stays). An `EnterMethod` nothing here closes is left for whoever disposes the logger. A `using` on a plain logger, or a `logger.Dispose()`, goes — a Microsoft.Extensions.Logging logger is not disposable. A `LeaveMethod` with no `EnterMethod` to pair with — TODO. |
 | PHLM007 | `EnterScope(name)` … `LeaveScope(name)` in one block | `using (logger.EnterMethod(name)) { … }` around what they bracketed. When a local declared inside is used after, a `using var scope = …` instead — TODO. |
-| PHLM008 | `ErrorWithContext` without a string message; `WarningWithContext`; the exception-less `…WithContext(context, message)` some copies add | `ErrorWithContext(ex, context, ex.Message)`; `{ LogObject(LogLevel.X, "Context", context); LogX([ex,] message); }` |
+| PHLM008 | `ErrorWithContext` or `WarningWithContext` without a string message; any other level's `…WithContext`, such as the `InfoWithContext` some copies add | `ErrorWithContext(ex, context, ex.Message)` (or `$"{message}"`), the same for `WarningWithContext`; `{ LogObject(LogLevel.X, "Context", context); LogX([ex,] message); }` |
 | PHLM009 | `Inspect` with a name that is not a string | `Inspect("42", value)` or `Inspect($"{name}", value)` |
 | PHLM010 | `LogObject(title, value)` | **Report only.** Logs at Trace in Pondhawk.Logging, Debug in Fabrica.Watch; carries over with PHLM015 |
 | PHLM011 | `LogJson/LogXml(title, text, pretty)` | The `pretty` flag is dropped |
@@ -55,7 +55,7 @@ Search for `TODO(Fabrica.Watch migration)` when the run is done.
 | PHLM014 | `Fabrica.Watch.SensitiveAttribute`, `Fabrica.Watch.Sink.PayloadType` written in full | `Pondhawk.Logging`'s |
 | PHLM015 | `using Fabrica.Watch;` (and `.Sink`, …) once nothing in the file needs it | `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;` — each only if the file uses it |
 | PHLM016 | `Fabrica.Watch.ILogger` written in full | `Microsoft.Extensions.Logging.ILogger` |
-| PHLM020 | `var ev = logger.CreateEvent(…); logger.LogEvent(ev);` | The one call that says the same: `LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload)`, `LogObject(level, title, value)`, `ErrorWithContext(ex, context, title)` (or `LogObject` and `LogX(ex, title)` below Error), or `LogX(title)`. An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only. |
+| PHLM020 | `var ev = logger.CreateEvent(…); logger.LogEvent(ev);` | The one call that says the same: `LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload)`, `LogObject(level, title, value)`, `ErrorWithContext`/`WarningWithContext(ex, context, title)` (or `LogObject` and `LogX(ex, title)` below Warning), or `LogX(title)`. An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only. |
 | PHLM021 | `WatchFactoryBuilder`, its `Use…` extensions, `WatchFactoryLocator.SetFactory` | **Report only.** Configure `AddWatch` / `AddCloudWatch` / `AddJournaldConsole`; `LoggingFactoryLocator.SetFactory` once |
 | PHLM022 | The Fabrica.Watch.Bridges provider | **Report only.** Remove it — Microsoft.Extensions.Logging is the API now |
 | PHLM023 | `GetCurrentScope`, `SetCurrentScope`, a logger's `Category` | **Report only.** No equivalent on `ILogger` |
@@ -64,7 +64,8 @@ Search for `TODO(Fabrica.Watch migration)` when the run is done.
 Many Fabrica.Watch names mean the same thing under the new usings, so they need no rewrite of their own and
 carry over with PHLM015: `ILogger`, `[Sensitive]`, `PayloadType` and its members, `this.GetLogger()`,
 `this.EnterMethod()`, `LogSql`, `LogYaml`, `LogObject(title, value)`, `LogJson`/`LogXml(title, text)`,
-`Inspect` with a string name and `ErrorWithContext` with a string message.
+`Inspect` with a string name, and `ErrorWithContext` and `WarningWithContext` with a string message — with an
+exception, or the `(context, message)` overloads without one that some copies add.
 
 The report-only rules keep a file's Fabrica.Watch using until they are dealt with by hand. So does a file that
 hands out Fabrica.Watch's `ILogger` through a member that is not private — a base class's

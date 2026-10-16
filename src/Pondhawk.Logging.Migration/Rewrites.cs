@@ -133,7 +133,7 @@ internal static class Rewrites
         };
     }
 
-    // ErrorWithContext(exception, context) gets a string message; any other …WithContext becomes LogObject + LogX.
+    // Error/WarningWithContext get a string message; any other level's …WithContext becomes LogObject + LogX.
     private static Rewriter? Context(IInvocationOperation? invocation, SemanticModel model)
     {
         if (invocation is null || ContextCall.Match(invocation) is not { } call)
@@ -149,8 +149,11 @@ internal static class Rewrites
             var messages = new Messages(model, original, now, context);
             var (exceptionText, stateText) = (messages.Current(exception), messages.Current(state)!);
 
-            if (string.Equals(call.Level, "Error", StringComparison.Ordinal) && exceptionText is not null)
-                return Renamed(now, "ErrorWithContext", [exceptionText, stateText, ErrorMessage(call.Message, exception, messages, context)]);
+            if (call.HasEquivalent)
+            {
+                var message = ErrorMessage(call.Equivalent, call.Message, exception, messages, context);
+                return Renamed(now, call.Equivalent, exceptionText is null ? [stateText, message] : [exceptionText, stateText, message]);
+            }
 
             var logger = ((MemberAccessExpressionSyntax)now.Expression).Expression.ToString();
             var kind = call.Message is null ? MessageKind.None : LevelCall.KindOf(call.Message);
@@ -169,7 +172,7 @@ internal static class Rewrites
         };
     }
 
-    private static string ErrorMessage(IArgumentOperation? message, ExpressionSyntax? exception, Messages messages, RewriteContext context)
+    private static string ErrorMessage(string method, IArgumentOperation? message, ExpressionSyntax? exception, Messages messages, RewriteContext context)
     {
         if (FabricaWatch.Written(message) is { } written)
             return "$\"{" + messages.Current(written) + "}\"";
@@ -177,8 +180,8 @@ internal static class Rewrites
         if (exception is IdentifierNameSyntax)
             return messages.Current(exception) + ".Message";
 
-        context.Todo("ErrorWithContext needs a message; say what failed");
-        return "\"Error\"";
+        context.Todo(method + " needs a message; say what failed");
+        return "\"" + method.Replace("WithContext", string.Empty) + "\"";
     }
 
     // logger.Inspect(42, value) → logger.Inspect("42", value)

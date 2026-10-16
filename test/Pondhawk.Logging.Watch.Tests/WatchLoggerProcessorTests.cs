@@ -501,6 +501,42 @@ public class WatchLoggerProcessorTests
     }
 
     [Fact]
+    public async Task Delivers_WarningWithContext_WithoutAnException_AsAJsonPayload()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("C").WarningWithContext(new { InstanceId = "i-0abc" }, "Nothing was deregistered");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Level.ShouldBe((int)LogLevel.Warning);
+        e.Title.ShouldBe("Nothing was deregistered");
+        e.ErrorType.ShouldBeNullOrEmpty();
+        e.Type.ShouldBe((int)PayloadType.Json);
+        e.Payload.ShouldContain("i-0abc");
+    }
+
+    [Fact]
+    public async Task Delivers_WarningWithContext_WithAnException_AsOnePayloadCarryingBoth()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource());
+
+        factory.CreateLogger("C").WarningWithContext(
+            new TimeoutException("slow"),
+            new { TargetGroup = "arn:tg" },
+            "Drain timed out");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Level.ShouldBe((int)LogLevel.Warning);
+        e.ErrorType.ShouldContain("TimeoutException");
+        e.Payload.ShouldContain("arn:tg");
+        e.Payload.ShouldContain("slow");
+    }
+
+    [Fact]
     public async Task Delivers_PayloadAtCallerChosenLevel()
     {
         var handler = new MockHttpHandler();

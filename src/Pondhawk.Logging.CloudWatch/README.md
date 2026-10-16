@@ -60,7 +60,8 @@ The shape follows what the event carries, never a guess at its text:
 - **An exception** gives `Exceptions`: the whole chain, outermost first, each with its `Type`, `Message`
   and a `StackTrace` of one frame per array entry (so the console shows it line by line, not as one line
   of `\n`s).
-- **`ErrorWithContext(cause, context, message)`** adds `Context`, the context object as nested JSON.
+- **`ErrorWithContext` / `WarningWithContext`** add `Context`, the context object as nested JSON, with or
+  without an exception.
   `Context` is always an object — a context that serializes to a string, number or array is wrapped as
   `{ "Value": ... }` — so `Context.OrderId` can always be queried.
 - **`LogJson` / `LogObject`** give `Payload` as nested JSON, never JSON inside a string. JSON that does not
@@ -89,7 +90,7 @@ level, category and title alone, with `"Truncated": true`.
 ### What reaches CloudWatch
 
 Everything logged at Information and above, as logged. `[Sensitive]` masks attributed members of the
-objects the logging API serializes — `LogObject`, and the context passed to `ErrorWithContext`. It does
+objects the logging API serializes — `LogObject`, and the context passed to `ErrorWithContext` or `WarningWithContext`. It does
 **not** cover message arguments (`LogInformation("... {Token}", token)`), strings passed to
 `LogJson`/`LogText`/`LogSql`/`LogXml`/`LogYaml`, exception messages, or anonymous-type contexts, which
 cannot carry the attribute. Keep secrets out of those.

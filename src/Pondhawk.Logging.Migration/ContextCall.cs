@@ -40,14 +40,20 @@ internal sealed class ContextCall
     public IArgumentOperation? Message { get; }
 
     /// <summary>
-    /// <c>ErrorWithContext(exception, context, "a string")</c> — Pondhawk.Logging has exactly that, so it carries
-    /// over with the using swap.
+    /// <c>ErrorWithContext</c> or <c>WarningWithContext</c> with a string message, with an exception or without
+    /// one — Pondhawk.Logging has exactly those, so it carries over with the using swap.
     /// </summary>
     public bool CarriesOver =>
-        string.Equals(Level, "Error", StringComparison.Ordinal)
-        && Exception is not null
+        HasEquivalent
         && Message is { ArgumentKind: ArgumentKind.Explicit } message
         && LevelCall.Unwrapped(message).Type?.SpecialType == SpecialType.System_String;
+
+    /// <summary>Error and Warning have a <c>…WithContext</c> in Pondhawk.Logging; the other levels do not.</summary>
+    public bool HasEquivalent =>
+        string.Equals(Level, "Error", StringComparison.Ordinal) || string.Equals(Level, "Warning", StringComparison.Ordinal);
+
+    /// <summary>The Pondhawk.Logging method it becomes when <see cref="HasEquivalent"/>.</summary>
+    public string Equivalent => Level + "WithContext";
 
     /// <summary>The <c>…WithContext</c> call this invocation is, or null.</summary>
     public static ContextCall? Match(IInvocationOperation invocation)

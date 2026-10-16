@@ -90,7 +90,7 @@ internal static class Rules
         "PHLM008",
         "Fabrica.Watch error or warning with context",
         "'{0}' needs rewriting for Pondhawk.Logging",
-        "ErrorWithContext(exception, context) needs a string message in Pondhawk.Logging. Any other …WithContext — WarningWithContext, or the exception-less ErrorWithContext(context, message) and InfoWithContext some copies of Fabrica.Watch add — becomes LogObject(LogLevel.X, \"Context\", context) and LogX(message). Arguments are found by parameter, not position.");
+        "ErrorWithContext and WarningWithContext — with an exception, or the exception-less (context, message) overloads some copies of Fabrica.Watch add — need a string message in Pondhawk.Logging. Any other level's …WithContext, such as InfoWithContext, becomes LogObject(LogLevel.X, \"Context\", context) and LogX(message). Arguments are found by parameter, not position.");
 
     public static readonly DiagnosticDescriptor InspectName = Rule(
         "PHLM009",
@@ -113,8 +113,8 @@ internal static class Rules
     public static readonly DiagnosticDescriptor Events = Rule(
         "PHLM020",
         "Fabrica.Watch event built by hand",
-        "'{0}' builds a Fabrica.Watch event by hand; use a levelled payload method or ErrorWithContext",
-        "An event created and logged at once (var ev = logger.CreateEvent(…); logger.LogEvent(ev);) becomes the one call that says the same: LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload), LogObject(level, title, value), ErrorWithContext, or LogX(title). An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only.");
+        "'{0}' builds a Fabrica.Watch event by hand; use a levelled payload method, ErrorWithContext or WarningWithContext",
+        "An event created and logged at once (var ev = logger.CreateEvent(…); logger.LogEvent(ev);) becomes the one call that says the same: LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload), LogObject(level, title, value), ErrorWithContext or WarningWithContext, or LogX(title). An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only.");
 
     public static readonly DiagnosticDescriptor Bootstrap = Rule(
         "PHLM021",

@@ -151,6 +151,17 @@ public class CloudWatchEventFormatterTests
     }
 
     [Fact]
+    public void AWarningWithContextAndNoException_HasTheContextAndNoExceptions()
+    {
+        var json = Parse(Event(e => e.ErrorContext = """{"InstanceId":"i-0abc"}""", level: LogLevel.Warning));
+
+        json.GetProperty("Level").GetString().ShouldBe("Warning");
+        json.GetProperty("Context").GetProperty("InstanceId").GetString().ShouldBe("i-0abc");
+        json.TryGetProperty("Exceptions", out _).ShouldBeFalse();
+        json.TryGetProperty("Payload", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public void TheWholeChainIsWritten_OutermostFirst()
     {
         var inner = Thrown(new ArgumentException("innermost"));

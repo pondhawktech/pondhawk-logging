@@ -20,6 +20,8 @@ for these):
 - **`ILogger.LogJson/LogSql/LogXml/LogYaml/LogText(title, content)`** — typed payload logging with syntax-highlighting hints, at Debug
 - **A `LogLevel` overload of every payload method** — `LogJson(LogLevel.Error, title, json)`, `LogObject(LogLevel.Error, title, value)`, … The payload that matters most is usually the one explaining a failure, and it has to ride on the event that reports the failure rather than on a low-level event a production level drops
 - **`ILogger.ErrorWithContext(cause, context, message)`** — logs an error carrying both the exception and a serialized context object, keeping the surrounding state attached to the failure it explains instead of flattened into the message
+- **`ILogger.WarningWithContext(cause, context, message)`** — the same at Warning
+- **`ErrorWithContext(context, message)`** / **`WarningWithContext(context, message)`** — the context without an exception, still one event. `(cause, message)` overloads log the exception with no context; they exist so a two-argument call with an exception is never taken for one whose context is the exception
 - **`[Sensitive]`** — attribute that masks a property when an object is serialized (`"Sensitive - HasValue: true"`)
 
 Each method guards on `ILogger.IsEnabled` first, so a disabled (e.g. switch-dropped) category pays no
