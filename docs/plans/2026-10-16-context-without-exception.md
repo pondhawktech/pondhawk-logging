@@ -1,6 +1,6 @@
 # Plan: context without an exception, and other small Fabrica.Watch gaps
 
-Status: **PLAN** — 2026-10-16. Part 1 implemented (`feature/context-without-exception`); the survey (§2) not started.
+Status: **PLAN** — 2026-10-16. Part 1 implemented (`feature/context-without-exception`); survey (§2) done, one candidate to decide.
 
 ## Why
 
@@ -164,6 +164,24 @@ when a small extension method in the existing pattern would give one?
 The survey implements nothing. Each "add" is decided before it is built, and then goes in as its own
 section of this plan.
 
-### Survey results
+### Survey results (2026-10-16)
 
-*(To be filled in.)*
+Every public member of Fabrica.Watch's `ILogger`, `LoggerExtensions` and `WatchExtensions` (fabrica-thin
+`2f23540`), plus what fabrica-one's copy adds (`InfoWithContext`, `WarningWithContext` and `ErrorWithContext`
+without an exception, `WatchCorrelation`, `WatchHelpers`). Counts are fabrica-one's calls at `269246c`, outside
+the vendored Fabrica.Watch. Members that already carry over or have a one-call rewrite are left out: the level calls
+(with templates, exceptions and `Func<string>`), `Is*Enabled`, `EnterMethod`/`LeaveMethod`, `Inspect`, the payload
+methods, `GetLogger`, `WatchFactoryLocator`, `[Sensitive]`, `PayloadType`, and Error/Warning context (§1).
+
+| Fabrica.Watch member | What the migration does today | Pondhawk.Logging equivalent | Recommendation |
+|---|---|---|---|
+| `InfoWithContext(context, message)` (fabrica-one's copy; 1 call). Trace/Debug have none. | PHLM008 splits it into `LogObject(LogLevel.Information, "Context", …)` and `LogInformation(…)` — the same two-events cost §1 removed at Error and Warning, less sharp (no alert counts Information). | `LogWithContext(LogLevel level, [Exception cause,] object context, string message)`, the levelled overload every payload method already has; PHLM008 would then never split. | **Decide.** Lean add: small, and it ends the last split. Against: one call in the one client migrated so far. |
+| `LogXml(title, xml, pretty = true)` — the default indents | PHLM011 drops the flag; the XML is logged as given, often one line. | None needed in the API. Watch's explorer indents JSON for display (`PayloadTypes.Pretty`) but not XML. | **Leave** the API. If wanted, indent XML in Watch's explorer (watch-server), as JSON is. 0 `LogXml` calls in fabrica-one. |
+| `Func<string>` lazy messages, in an expression body | Becomes a message template; inside an expression it can't get an `IsEnabled` guard, so a TODO notes it is now built every time. | MEL's idiom is the template (cheap) or an `IsEnabled` guard. | **Leave.** |
+| `EnterScope`/`LeaveScope` (1 call) | PHLM007: a `using (logger.EnterMethod(name))`; a TODO when the scope can only end with the block. | `EnterMethod(name)` — structural, not a missing method. | **Leave.** |
+| `ILogger.Category`, `GetCurrentScope`, `SetCurrentScope` (0 calls on a logger) | PHLM023, report only. | MEL's `ILogger` has no category or scope name. | **Leave.** |
+| `WatchCorrelation.Begin`/`Current` (fabrica-one's copy; 2 production calls, tests) | PHLM024, report only. | `Pondhawk.Context.Operation.Begin(id)`; the guide already says so, and fabrica-one migrated it by hand. | **Leave.** Copy-specific; a rule would serve one copy. |
+| `WatchHelpers.ToWatchTimestamp` (0 calls) | PHLM024. | — | **Leave.** |
+
+**Result.** One candidate is an API gap of the §1 kind: context at Information (and below). Everything else is
+already a one-call rewrite, structural, or unused.
