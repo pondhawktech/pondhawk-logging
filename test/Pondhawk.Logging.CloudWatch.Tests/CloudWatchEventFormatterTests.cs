@@ -96,7 +96,7 @@ public class CloudWatchEventFormatterTests
     {
         var json = Parse(Event(e =>
         {
-            e.PayloadType = PayloadType.Json;
+            e.PayloadType = (int)PayloadType.Json;
             e.Payload = """{"OrderId":42,"Lines":[1,2]}""";
         }));
 
@@ -109,7 +109,7 @@ public class CloudWatchEventFormatterTests
     {
         var json = Parse(Event(e =>
         {
-            e.PayloadType = PayloadType.Json;
+            e.PayloadType = (int)PayloadType.Json;
             e.Payload = "{ not json";
         }));
 
@@ -121,7 +121,7 @@ public class CloudWatchEventFormatterTests
     {
         var json = Parse(Event(e =>
         {
-            e.PayloadType = PayloadType.Sql;
+            e.PayloadType = (int)PayloadType.Sql;
             e.Payload = "select *\r\nfrom orders\nwhere id = 1\n";
         }));
 
@@ -193,7 +193,7 @@ public class CloudWatchEventFormatterTests
 
         var message = CloudWatchEventFormatter.Format(Event(e =>
         {
-            e.PayloadType = PayloadType.Text;
+            e.PayloadType = (int)PayloadType.Text;
             e.Payload = payload;
         }));
 
@@ -210,7 +210,7 @@ public class CloudWatchEventFormatterTests
 
         var message = CloudWatchEventFormatter.Format(Event(e =>
         {
-            e.PayloadType = PayloadType.Json;
+            e.PayloadType = (int)PayloadType.Json;
             e.Payload = payload;
         }));
 
@@ -227,7 +227,7 @@ public class CloudWatchEventFormatterTests
     {
         var logEvent = Event(e =>
         {
-            e.PayloadType = PayloadType.Text;
+            e.PayloadType = (int)PayloadType.Text;
             e.Payload = new string(character, length) + "\nsecond line\nthird line";
         }, level: LogLevel.Warning);
 

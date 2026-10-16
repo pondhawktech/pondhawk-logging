@@ -60,7 +60,8 @@ switch-dropped categories at the call site, with no change to calling code.
 ### Use the Logging API
 
 The logging API is a set of extensions on `ILogger` and lives in `Pondhawk.Logging`
-(`using Pondhawk.Logging;`). Obtain a logger from the standard `ILoggerFactory`:
+(`using Pondhawk.Logging;`). This package does not bring it in: reference the `Pondhawk.Logging` package
+too (or vendor its source). Obtain a logger from the standard `ILoggerFactory`:
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -215,7 +216,9 @@ A request carrying a probe token Watch issued (see
 [`Pondhawk.Logging.AspNetCore`](../Pondhawk.Logging.AspNetCore/README.md#the-diagnostic-probe)) logs at
 Trace whatever the switches say, and its events carry the tag `Diagnostics`. The switch filter reads the probe
 only when a switch would drop an event, so an unprobed request pays nothing for it. The domain's probe public
-key arrives with the switches; `AddWatch` registers it as `IDiagnosticProbeKey` for the token check. A failed
+key arrives with the switches; `AddWatch` registers it for the token check as a keyed service of built-in types,
+`Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>` under `"Pondhawk.DiagnosticProbeKey"`, so the ASP.NET
+Core diagnostics need no type from this package. A failed
 poll keeps the last key; a rebind drops it until the new domain's switches arrive.
 
 ## Key Components
@@ -244,8 +247,9 @@ both providers with the switch table at Debug, a `LogDebug` call site still form
 keeps the event, and the console discards it afterwards.
 
 The logging API types (`LoggingExtensions`, `MethodLogger`, `PayloadType`, `SensitiveAttribute`,
-`LogPropertyNames`, the serializers) live in `Pondhawk.Logging`, which this package references. This
-package adds only the Watch-specific pieces: the delivery processor, switching, and the `AddWatch` wiring.
+`LogPropertyNames`, the serializers) live in `Pondhawk.Logging`, which this package does not reference:
+an application that uses the API references it itself — from NuGet, or by vendoring its source — and can drop it, so no package depends on it. This package
+reads the names and values the API puts on the log state, and adds only the Watch-specific pieces: the delivery processor, switching, and the `AddWatch` wiring.
 
 ## Documentation
 

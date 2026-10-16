@@ -28,9 +28,25 @@ for these):
 Each method guards on `ILogger.IsEnabled` first, so a disabled (e.g. switch-dropped) category pays no
 serialization cost.
 
-Also included: `LogPropertyNames` (the public `Pondhawk.*` log-state property-name contract that sinks
-read), the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum,
+Also included: `LogPropertyNames` (the public `Pondhawk.*` log-state property names the providers read),
+the serializers (`JsonObjectSerializer` and friends), the `PayloadType` enum,
 and public `TypeExtensions` (`GetConciseName` / `GetConciseFullName`).
+
+## Referencing, vendoring or dropping it
+
+**No other Pondhawk.Logging package references this one**, so an application that uses the API references it
+itself. The usual way is the NuGet package. Vendoring its source — copying `src/Pondhawk.Logging` into the
+application — is an option, and so is dropping it later; neither breaks anything else. The Watch, CloudWatch and console providers and the ASP.NET Core
+diagnostics read what it puts on the log state — names and values — and never its types, so a vendored copy
+beside them gives each type once, with no CS0433 ambiguity.
+
+- **Its one dependency** is `Microsoft.Extensions.Logging.Abstractions` (8.0 or later).
+- **Keep these values as they are** in a vendored copy, because the providers keep their own copies of them:
+  the `LogPropertyNames` strings, the `PayloadType` numbers, and `DiagnosticProbe`'s `Activity` property and
+  tag.
+- **To drop it**, replace its calls (`EnterMethod`, `LogJson`, `ErrorWithContext`, …) with
+  `Microsoft.Extensions.Logging`'s own. The providers need nothing from it; a payload logged as a plain message
+  arrives as text.
 
 ## Correlation, subject and tenant
 
@@ -60,9 +76,10 @@ for one is sent on purpose, in a header.
 `DiagnosticProbe` marks the current unit of work as probed — support asked, with a token Watch Server issued,
 for everything it logs at Trace. `DiagnosticProbe.Begin()` marks the current `Activity`; `IsActive` is true
 for it and every activity under it, and the mark is neither baggage nor a tag, so it is never sent on an
-outbound call. `IDiagnosticProbeKey` is where the key that checks a token comes from. A provider honours the
-probe (the Watch provider does) and `Pondhawk.Logging.AspNetCore` checks the token; application code needs
-neither.
+outbound call. A provider honours the probe (the Watch provider does) and `Pondhawk.Logging.AspNetCore`
+checks the token and begins it; application code needs neither, unless it probes work of its own, such as a
+background job. Neither package references this one: they set and read the same `Activity` property
+(`Pondhawk.DiagnosticProbe`) and use the same tag (`Diagnostics`).
 
 ## Acquiring loggers
 

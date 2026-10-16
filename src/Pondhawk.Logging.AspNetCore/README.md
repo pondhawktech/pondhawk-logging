@@ -5,8 +5,9 @@ that put a **correlation id, subject and tenant** on every event of a request, *
 its status and elapsed time, and — when switched on — **dump the whole request**.
 
 They log through `Microsoft.Extensions.Logging` under one category, `Pondhawk.Diagnostics.Http`, so they work
-with any provider. The package depends on `Pondhawk.Logging` and the ASP.NET Core shared framework, and on no
-sink.
+with any provider. The package depends on `Pondhawk.Context` and the ASP.NET Core shared framework, and on no
+sink — and not on `Pondhawk.Logging`: an application that uses the API references it itself (from NuGet, or vendored), and can drop it. The
+request dump is the event `LogJson` writes, built here.
 
 ## Usage
 
@@ -254,7 +255,9 @@ exception, no change to the response. The refusal is logged at Warning, naming t
 read so support can find the issue in Watch, and once per token: a client still sending an expired one logs
 a Warning once, then Debug.
 
-Without the Watch provider there is no key, and the header is ignored. `options.Probe = false` turns the probe
+Without the Watch provider there is no key, and the header is ignored. The key comes from it as a keyed
+service of built-in types (`"Pondhawk.DiagnosticProbeKey"`), so this package references neither the provider
+nor the API; a DI container without keyed services gets no key either. `options.Probe = false` turns the probe
 off. Like the correlation id, the probe attaches to the request's `Activity`; it is never sent on to the
 services the request calls.
 

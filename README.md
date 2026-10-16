@@ -18,11 +18,11 @@
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.AspNetCore"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.AspNetCore?label=Logging.AspNetCore" alt="Pondhawk.Logging.AspNetCore on NuGet" /></a>
 </p>
 
-Five packages, all `net8.0`, with no dependency on any Pondhawk package beyond the logging API itself and Pondhawk.Context, which holds the unit of work's correlation id, subject and tenant:
+Five packages, all `net8.0`. The only Pondhawk package any depends on is Pondhawk.Context, which holds the unit of work's correlation id, subject and tenant. **No package depends on the logging API**: an application that uses it references `Pondhawk.Logging` itself, from NuGet as usual or by vendoring its source (see [Referencing, vendoring or dropping it](src/Pondhawk.Logging/README.md#referencing-vendoring-or-dropping-it)), and can drop it without breaking. The providers read only the names and values it puts on the log state.
 
 | Package | Description |
 |---------|-------------|
-| [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport** — providers build on it. |
+| [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport**, and no other package references it — an application references it directly. |
 | [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
 | [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), at Warning by default for Linux production services, or from a floor you choose. |
 | [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
@@ -36,7 +36,7 @@ what behaves differently — is in [MIGRATING-FROM-FABRICA-WATCH.md](MIGRATING-F
 ## Installation
 
 ```bash
-dotnet add package Pondhawk.Logging
+dotnet add package Pondhawk.Logging           # the API; no provider brings it in (vendoring its source also works)
 dotnet add package Pondhawk.Logging.Watch     # deliver events to a Watch Server
 dotnet add package Pondhawk.Logging.Console   # journald-optimized console for Linux production
 dotnet add package Pondhawk.Logging.CloudWatch # deliver events to Amazon CloudWatch Logs
@@ -64,7 +64,7 @@ logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
 logger.WarningWithContext(new { InstanceId = id }, "Nothing was deregistered");
 ```
 
-`[Sensitive]` masks a property when an object is serialized. Also included: the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
+`[Sensitive]` masks a property when an object is serialized. Also included: the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames`, the property names the providers read (each keeps its own copy, so they never change).
 
 ### Changing the Watch destination while running
 

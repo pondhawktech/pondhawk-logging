@@ -3,7 +3,6 @@
 
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging.AspNetCore;
@@ -34,11 +33,11 @@ internal static class RequestProbe
             return;
 
         // No key source means no Watch provider to deliver a key: the probe is off, and nothing is refused.
-        if (context.RequestServices.GetService<IDiagnosticProbeKey>() is not { } keys)
+        if (ProbeContract.KeySource(context) is not { } keys)
             return;
 
         var token = values[0] ?? string.Empty;
-        var check = ProbeToken.Verify(token, keys.Current, DateTimeOffset.UtcNow);
+        var check = ProbeToken.Verify(token, keys() is { } key ? new ProbeToken.ProbeKey(key.Domain, key.PublicKey) : null, DateTimeOffset.UtcNow);
 
         if (!check.IsAccepted)
         {
@@ -71,7 +70,7 @@ internal static class RequestProbe
 
     private static void Begin(ILogger logger, string? tokenId, string? subject)
     {
-        if (DiagnosticProbe.Begin())
+        if (ProbeContract.Begin())
             DiagnosticsLog.ProbeBegun(logger, tokenId ?? "(none)", subject ?? "any user");
     }
 

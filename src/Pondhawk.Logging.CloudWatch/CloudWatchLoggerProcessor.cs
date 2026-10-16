@@ -257,16 +257,16 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
 
             switch (key)
             {
-                case LogPropertyNames.Nesting when value is int nesting:
+                case LogStateContract.Nesting when value is int nesting:
                     logEvent.Nesting = nesting;
                     break;
-                case LogPropertyNames.PayloadType when value is int payloadType:
-                    logEvent.PayloadType = (PayloadType)payloadType;
+                case LogStateContract.PayloadType when value is int payloadType:
+                    logEvent.PayloadType = payloadType;
                     break;
-                case LogPropertyNames.PayloadContent:
+                case LogStateContract.PayloadContent:
                     logEvent.Payload = value as string ?? value?.ToString();
                     break;
-                case LogPropertyNames.ErrorContext:
+                case LogStateContract.ErrorContext:
                     logEvent.ErrorContext = value as string ?? value?.ToString();
                     break;
             }

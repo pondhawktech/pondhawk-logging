@@ -30,7 +30,8 @@ internal sealed class CloudWatchEvent
     /// <summary>The method-tracing delta: +1 on entry, -1 on exit, 0 for every other event.</summary>
     public int Nesting { get; set; }
 
-    public PayloadType PayloadType { get; set; }
+    /// <summary>The payload's type, as the API numbers it (<see cref="LogStateContract"/>).</summary>
+    public int PayloadType { get; set; }
 
     public string? Payload { get; set; }
 
