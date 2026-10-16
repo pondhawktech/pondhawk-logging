@@ -59,8 +59,9 @@ logger.LogJson("payload", jsonString);       // typed payload with syntax-highli
 logger.LogJson(LogLevel.Error, "Malformed plan", planJson);
 logger.LogObject(LogLevel.Error, "result", result);
 
-// An error plus the state that surrounds it, on one event.
+// An error or warning plus the state that surrounds it, on one event — with or without an exception.
 logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
+logger.WarningWithContext(new { InstanceId = id }, "Nothing was deregistered");
 ```
 
 `[Sensitive]` masks a property when an object is serialized. Also included: the `PayloadType` enum, the `JsonObjectSerializer`, and the public `LogPropertyNames` contract that sinks read.
@@ -132,7 +133,7 @@ using Pondhawk.Logging.CloudWatch;
 builder.Logging.AddCloudWatch("/my-app/Production", "orders");   // stream: <instance-id>/orders
 ```
 
-Each event carries `Level`, `Category`, `CorrelationId` and `Title`, with an exception written as a structured `Exceptions` chain, an `ErrorWithContext` context as a nested `Context` object, and a JSON payload as nested JSON — so Logs Insights filters on fields (`filter Context.OrderId = 42`). The provider creates its stream, and a missing group with 30 days' retention, on its first batch; adding it touches no network, and a CloudWatch that is unreachable, denied or unconfigured never throws into or delays the host. A `CloudWatchDestination` can start unbound and be rebound when the group is learned later. See the [package README](src/Pondhawk.Logging.CloudWatch/README.md).
+Each event carries `Level`, `Category`, `CorrelationId` and `Title`, with an exception written as a structured `Exceptions` chain, an `ErrorWithContext`/`WarningWithContext` context as a nested `Context` object, and a JSON payload as nested JSON — so Logs Insights filters on fields (`filter Context.OrderId = 42`). The provider creates its stream, and a missing group with 30 days' retention, on its first batch; adding it touches no network, and a CloudWatch that is unreachable, denied or unconfigured never throws into or delays the host. A `CloudWatchDestination` can start unbound and be rebound when the group is learned later. See the [package README](src/Pondhawk.Logging.CloudWatch/README.md).
 
 ## Pondhawk.Logging.AspNetCore
 

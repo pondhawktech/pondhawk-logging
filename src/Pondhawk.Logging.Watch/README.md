@@ -116,6 +116,9 @@ logger.LogJson(LogLevel.Error, "Malformed Mission Plan", planJson);
 // Exception + surrounding state on one event: the Watch payload shows the context
 // object above the exception detail.
 logger.ErrorWithContext(cause, new { InstanceId = id }, "Failed to deregister");
+
+// Without an exception (and at Warning) the context is the event's Json payload.
+logger.WarningWithContext(new { InstanceId = id }, "Nothing was deregistered");
 ```
 
 ### Sensitive Data Masking

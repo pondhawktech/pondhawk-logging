@@ -69,7 +69,7 @@ internal static class CarriedOver
         {
             "LogJson" or "LogXml" => FabricaWatch.Argument(invocation, 3) is not { ArgumentKind: ArgumentKind.Explicit },
             "Inspect" => HasStringName(invocation),
-            "ErrorWithContext" => ContextCall.Match(invocation)?.CarriesOver ?? false,
+            "ErrorWithContext" or "WarningWithContext" => ContextCall.Match(invocation)?.CarriesOver ?? false,
             _ => SameShape.Contains(declared.Name, StringComparer.Ordinal),
         };
     }

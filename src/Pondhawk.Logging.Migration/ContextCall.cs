@@ -15,10 +15,9 @@ namespace Pondhawk.Logging.Migration;
 /// </summary>
 internal sealed class ContextCall
 {
-    private ContextCall(string level, string method, IArgumentOperation? exception, IArgumentOperation? context, IArgumentOperation? message)
+    private ContextCall(string level, IArgumentOperation? exception, IArgumentOperation? context, IArgumentOperation? message)
     {
         Level = level;
-        Method = method;
         Exception = exception;
         Context = context;
         Message = message;
@@ -26,9 +25,6 @@ internal sealed class ContextCall
 
     /// <summary>The <c>LogLevel</c> member it logs at.</summary>
     public string Level { get; }
-
-    /// <summary>The Microsoft.Extensions.Logging method its message becomes.</summary>
-    public string Method { get; }
 
     /// <summary>The exception, when the overload takes one.</summary>
     public IArgumentOperation? Exception { get; }
@@ -40,14 +36,20 @@ internal sealed class ContextCall
     public IArgumentOperation? Message { get; }
 
     /// <summary>
-    /// <c>ErrorWithContext(exception, context, "a string")</c> — Pondhawk.Logging has exactly that, so it carries
-    /// over with the using swap.
+    /// <c>ErrorWithContext</c> or <c>WarningWithContext</c> with a string message, with an exception or without
+    /// one — Pondhawk.Logging has exactly those, so it carries over with the using swap.
     /// </summary>
     public bool CarriesOver =>
-        string.Equals(Level, "Error", StringComparison.Ordinal)
-        && Exception is not null
+        HasOwnMethod
         && Message is { ArgumentKind: ArgumentKind.Explicit } message
         && LevelCall.Unwrapped(message).Type?.SpecialType == SpecialType.System_String;
+
+    /// <summary>Error and Warning have a <c>…WithContext</c> of their own in Pondhawk.Logging; the other levels use <c>LogWithContext(level, …)</c>.</summary>
+    public bool HasOwnMethod =>
+        string.Equals(Level, "Error", StringComparison.Ordinal) || string.Equals(Level, "Warning", StringComparison.Ordinal);
+
+    /// <summary>The Pondhawk.Logging method it becomes.</summary>
+    public string Equivalent => HasOwnMethod ? Level + "WithContext" : "LogWithContext";
 
     /// <summary>The <c>…WithContext</c> call this invocation is, or null.</summary>
     public static ContextCall? Match(IInvocationOperation invocation)
@@ -57,17 +59,17 @@ internal sealed class ContextCall
             || !FabricaWatch.Calls(invocation, FabricaWatch.LoggerExtensions, declared.Name))
             return null;
 
-        var (level, method) = declared.Name.Substring(0, declared.Name.Length - "WithContext".Length) switch
+        var level = declared.Name.Substring(0, declared.Name.Length - "WithContext".Length) switch
         {
-            "Trace" => ("Trace", "LogTrace"),
-            "Debug" => ("Debug", "LogDebug"),
-            "Info" => ("Information", "LogInformation"),
-            "Warning" => ("Warning", "LogWarning"),
-            "Error" => ("Error", "LogError"),
-            _ => (null, null),
+            "Trace" => "Trace",
+            "Debug" => "Debug",
+            "Info" => "Information",
+            "Warning" => "Warning",
+            "Error" => "Error",
+            _ => null,
         };
 
-        if (level is null || method is null)
+        if (level is null)
             return null;
 
         IArgumentOperation? Find(Func<IParameterSymbol, bool> match) =>
@@ -75,7 +77,6 @@ internal sealed class ContextCall
 
         return new ContextCall(
             level,
-            method,
             Find(p => string.Equals(p.Type.ToDisplayString(), "System.Exception", StringComparison.Ordinal)),
             Find(p => string.Equals(p.Name, "context", StringComparison.Ordinal)),
             Find(p => string.Equals(p.Name, "message", StringComparison.Ordinal)));

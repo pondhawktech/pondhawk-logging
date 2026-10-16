@@ -237,6 +237,153 @@ public class LoggingExtensionsTests
         logger.Entries.ShouldBeEmpty();
     }
 
+    [Fact]
+    public void ErrorWithContext_WithoutException_EmitsErrorCarryingContextAndNoException()
+    {
+        var logger = new CollectingLogger();
+
+        logger.ErrorWithContext(new { InstanceId = "i-0abc" }, "Nothing was deregistered");
+
+        var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Error);
+        e.Message.ShouldBe("Nothing was deregistered");
+        e.Exception.ShouldBeNull();
+        ((string)CollectingLogger.Prop(e, LogPropertyNames.ErrorContext)).ShouldContain("i-0abc");
+    }
+
+    [Fact]
+    public void ErrorWithContext_ExceptionAndMessageOnly_LogsTheExceptionNotAsContext()
+    {
+        var logger = new CollectingLogger();
+        var cause = new InvalidOperationException("boom");
+
+        // Binds to (Exception, string), not (object, string): the exception is the cause, never serialized.
+        logger.ErrorWithContext(cause, "Failed to deregister");
+
+        var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Error);
+        e.Message.ShouldBe("Failed to deregister");
+        e.Exception.ShouldBeSameAs(cause);
+        CollectingLogger.Prop(e, LogPropertyNames.ErrorContext).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ErrorWithContext_MessageIsATitleNotATemplate()
+    {
+        var logger = new CollectingLogger();
+
+        logger.ErrorWithContext(new { Id = 1 }, "Order {Id} failed");
+
+        logger.Entries.ShouldHaveSingleItem().Message.ShouldBe("Order {Id} failed");
+    }
+
+    [Fact]
+    public void WarningWithContext_EmitsWarningCarryingExceptionAndSerializedContext()
+    {
+        var logger = new CollectingLogger();
+        var cause = new TimeoutException("slow");
+
+        logger.WarningWithContext(cause, new { TargetGroup = "arn:tg" }, "Drain timed out");
+
+        var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Warning);
+        e.Message.ShouldBe("Drain timed out");
+        e.Exception.ShouldBeSameAs(cause);
+        ((string)CollectingLogger.Prop(e, LogPropertyNames.ErrorContext)).ShouldContain("arn:tg");
+    }
+
+    [Fact]
+    public void WarningWithContext_WithoutException_EmitsWarningCarryingContextAndNoException()
+    {
+        var logger = new CollectingLogger();
+
+        logger.WarningWithContext(new { InstanceId = "i-0abc" }, "Skipping the drain wait");
+
+        var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Warning);
+        e.Message.ShouldBe("Skipping the drain wait");
+        e.Exception.ShouldBeNull();
+        ((string)CollectingLogger.Prop(e, LogPropertyNames.ErrorContext)).ShouldContain("i-0abc");
+    }
+
+    [Fact]
+    public void WarningWithContext_ExceptionAndMessageOnly_LogsTheExceptionNotAsContext()
+    {
+        var logger = new CollectingLogger();
+        var cause = new TimeoutException("slow");
+
+        logger.WarningWithContext(cause, "Drain timed out");
+
+        var e = logger.Entries.ShouldHaveSingleItem();
+        e.Level.ShouldBe(LogLevel.Warning);
+        e.Exception.ShouldBeSameAs(cause);
+        CollectingLogger.Prop(e, LogPropertyNames.ErrorContext).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(LogLevel.Trace)]
+    [InlineData(LogLevel.Debug)]
+    [InlineData(LogLevel.Information)]
+    public void LogWithContext_EmitsAtTheGivenLevel_WithOrWithoutAnException(LogLevel level)
+    {
+        var logger = new CollectingLogger();
+        var cause = new InvalidOperationException("boom");
+
+        logger.LogWithContext(level, new { InstanceId = "i-0abc" }, "Placing");
+        logger.LogWithContext(level, cause, new { InstanceId = "i-0def" }, "Placing failed");
+        logger.LogWithContext(level, cause, "Retrying");
+
+        logger.Entries.Count.ShouldBe(3);
+        logger.Entries.ShouldAllBe(e => e.Level == level);
+
+        logger.Entries[0].Exception.ShouldBeNull();
+        ((string)CollectingLogger.Prop(logger.Entries[0], LogPropertyNames.ErrorContext)).ShouldContain("i-0abc");
+
+        logger.Entries[1].Exception.ShouldBeSameAs(cause);
+        ((string)CollectingLogger.Prop(logger.Entries[1], LogPropertyNames.ErrorContext)).ShouldContain("i-0def");
+
+        // (level, Exception, string) binds to the exception overload: the cause, never serialized as context.
+        logger.Entries[2].Exception.ShouldBeSameAs(cause);
+        CollectingLogger.Prop(logger.Entries[2], LogPropertyNames.ErrorContext).ShouldBeNull();
+    }
+
+    [Fact]
+    public void WithContext_WhenLevelDisabled_SerializesNothing()
+    {
+        var errorsOnly = new CollectingLogger(LogLevel.Error);
+        var none = new CollectingLogger(LogLevel.Critical);
+        var context = new CountsReads();
+
+        errorsOnly.WarningWithContext(context, "dropped");
+        errorsOnly.WarningWithContext(new InvalidOperationException(), context, "dropped");
+        errorsOnly.WarningWithContext(new InvalidOperationException(), "dropped");
+        none.ErrorWithContext(context, "dropped");
+        none.ErrorWithContext(new InvalidOperationException(), "dropped");
+        errorsOnly.LogWithContext(LogLevel.Information, context, "dropped");
+        errorsOnly.LogWithContext(LogLevel.Debug, new InvalidOperationException(), context, "dropped");
+
+        errorsOnly.Entries.ShouldBeEmpty();
+        none.Entries.ShouldBeEmpty();
+        context.Reads.ShouldBe(0);
+
+        errorsOnly.ErrorWithContext(context, "kept");   // and the counter does see a serialization
+        context.Reads.ShouldBe(1);
+    }
+
+    private sealed class CountsReads
+    {
+        public int Reads { get; private set; }
+
+        public string Value
+        {
+            get
+            {
+                Reads++;
+                return "read";
+            }
+        }
+    }
+
     // ── Inspect ──
 
     [Fact]

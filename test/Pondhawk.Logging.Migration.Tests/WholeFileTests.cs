@@ -104,7 +104,7 @@ public class WholeFileTests
                         logger.Inspect("total", total);
                         {|PHLM011:logger.LogJson("Order", "{}", false)|};
                         {|PHLM010:logger.LogObject("State", state)|};
-                        {|PHLM008:logger.WarningWithContext(problem, state, "Retrying")|};
+                        logger.WarningWithContext(problem, state, "Retrying");
                         {|PHLM008:logger.ErrorWithContext(problem, state)|};
                         {|PHLM001:logger.Error(problem)|};
                     }
@@ -142,10 +142,7 @@ public class WholeFileTests
                     logger.Inspect("total", total);
                     logger.LogJson("Order", "{}");
                     logger.LogObject("State", state);
-                    {
-                        logger.LogObject(LogLevel.Warning, "Context", state);
-                        logger.LogWarning(problem, "Retrying");
-                    }
+                    logger.WarningWithContext(problem, state, "Retrying");
                     logger.ErrorWithContext(problem, state, problem.Message);
                     logger.LogError(problem, "{Message}", problem.Message);
                 }

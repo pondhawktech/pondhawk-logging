@@ -144,7 +144,7 @@ logger.LogYaml(LogLevel.Information, "Appliance Info", yaml);                   
 ```
 
 A typed payload becomes `LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload)`, an object
-`LogObject(level, title, value)`, an exception with context `ErrorWithContext` — and a title alone `LogX(title)`.
+`LogObject(level, title, value)`, an exception with context `ErrorWithContext` or `WarningWithContext` — and a title alone `LogX(title)`.
 An event changed or passed on before it is logged, or whose level or payload type is not a constant, is left for
 you, with the same methods to reach for.
 
@@ -193,9 +193,10 @@ plain `1` is refused — logged once, the request otherwise unaffected. See the
 | `Inspect(name, value)` → `Variable: name = (value)` | `Inspect(name, value)` → `name = value`, at Debug; the name is a string |
 | `LogObject(title, value)` at Debug | at Trace; a `LogLevel` overload for any other |
 | `LogJson/LogXml(title, text, pretty)` | no `pretty`: the content is logged as given |
-| `ErrorWithContext(ex, context, message?)` | `ErrorWithContext(ex, context, message)` — the message is required |
-| `WarningWithContext`, `InfoWithContext` | `LogObject(LogLevel.X, "Context", context)` then `LogX(…)` |
-| `CreateEvent` + `LogEvent` | a payload method at the event's level, or `ErrorWithContext` |
+| `ErrorWithContext(ex, context, message?)`, `WarningWithContext(…)` | the same method — the message is required |
+| `ErrorWithContext(context, message)`, `WarningWithContext(context, message)` (some copies) | the same method, unchanged — still one event |
+| `InfoWithContext` and other levels | `LogWithContext(LogLevel.X, [ex,] context, message)` — one event |
+| `CreateEvent` + `LogEvent` | a payload method at the event's level, or `ErrorWithContext`/`WarningWithContext` |
 | `this.GetLogger()`, `this.EnterMethod<T>()` | `this.GetLogger()`, `this.EnterMethod()` |
 | `WatchFactoryLocator.Factory.GetLogger(…)` — last `SetFactory` wins | `LoggingFactoryLocator.GetFactory().CreateLogger(…)` — set once |
 | `WatchFactoryBuilder.Use…` | `AddWatch` / `AddCloudWatch` / `AddJournaldConsole` |
@@ -216,7 +217,8 @@ Also worth knowing:
 
 Fabrica.Watch is often vendored and changed. The analyzer recognises it by name, finds arguments by parameter
 rather than position, and knows two common changes: template overloads renamed `DebugFormat`, `WarningFormat` …,
-and `…WithContext(context, message)` overloads without an exception. Anything else such a copy adds is reported
+and `…WithContext(context, message)` overloads without an exception (at Error and Warning they carry over
+unchanged; `InfoWithContext` becomes `LogWithContext(LogLevel.Information, …)`). Anything else such a copy adds is reported
 as PHLM024 for you to migrate. Fabrica.Watch's own source, vendored into the solution, is never reported or
 rewritten.
 

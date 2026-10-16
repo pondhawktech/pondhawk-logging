@@ -175,6 +175,30 @@ public class CloudWatchLoggerProcessorTests
         info.RootElement.TryGetProperty("Subject", out _).ShouldBeFalse("set on the unit of work, which had ended");
     }
 
+    [Fact]
+    public void ContextWithoutAnException_IsOneEvent_AtWarningAndError()
+    {
+        var harness = Build();
+
+        harness.Logger.WarningWithContext(new { InstanceId = "i-0abc" }, "Nothing was deregistered");
+        harness.Logger.ErrorWithContext(new { InstanceId = "i-0def" }, "Drain failed");
+        harness.Dispose();
+
+        var messages = harness.Fake.Messages;
+        messages.Count.ShouldBe(2, "one event per call — the context is not split from its message");
+
+        using var warning = JsonDocument.Parse(messages[0]);
+        warning.RootElement.GetProperty("Level").GetString().ShouldBe("Warning");
+        warning.RootElement.GetProperty("Title").GetString().ShouldBe("Nothing was deregistered");
+        warning.RootElement.GetProperty("Context").GetProperty("InstanceId").GetString().ShouldBe("i-0abc");
+        warning.RootElement.TryGetProperty("Exceptions", out _).ShouldBeFalse();
+
+        using var error = JsonDocument.Parse(messages[1]);
+        error.RootElement.GetProperty("Level").GetString().ShouldBe("Error");
+        error.RootElement.GetProperty("Context").GetProperty("InstanceId").GetString().ShouldBe("i-0def");
+        error.RootElement.TryGetProperty("Exceptions", out _).ShouldBeFalse();
+    }
+
     // ── Start-up ──
 
     [Fact]

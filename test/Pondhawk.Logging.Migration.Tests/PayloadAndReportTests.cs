@@ -25,46 +25,28 @@ public class PayloadAndReportTests
     [Theory]
     [InlineData("""logger.ErrorWithContext(ex, state)""", """logger.ErrorWithContext(ex, state, ex.Message)""")]
     [InlineData("""logger.ErrorWithContext(ex, state, count)""", """logger.ErrorWithContext(ex, state, $"{count}")""")]
-    public Task ErrorWithContext_gets_a_string_message(string fabrica, string logging) =>
+    [InlineData("""logger.WarningWithContext(ex, state)""", """logger.WarningWithContext(ex, state, ex.Message)""")]
+    [InlineData("""logger.WarningWithContext(ex, state, count)""", """logger.WarningWithContext(ex, state, $"{count}")""")]
+    public Task Error_and_WarningWithContext_get_a_string_message(string fabrica, string logging) =>
         MigrationTest.RunAsync(Code("{|PHLM008:" + fabrica + "|};"), Code(logging + ";"), "PHLM008");
 
-    [Fact]
-    public Task An_ErrorWithContext_with_a_string_message_carries_over() =>
-        MigrationTest.NoneAsync(Code("""logger.ErrorWithContext(ex, state, "Placing failed");"""), "PHLM008");
-
-    [Fact]
-    public Task WarningWithContext_logs_the_context_then_the_warning() =>
-        MigrationTest.RunAsync(
-            Code("""{|PHLM008:logger.WarningWithContext(ex, state, "Retrying")|};"""),
-            Code("""
-                {
-                            logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Warning, "Context", state);
-                            logger.LogWarning(ex, "Retrying");
-                        }
-                """),
-            "PHLM008");
-
-    // Found in fabrica-one: its copy of Fabrica.Watch adds …WithContext overloads without an exception.
+    // The exception-less overloads are found in fabrica-one: its copy of Fabrica.Watch adds them.
     [Theory]
-    [InlineData("ErrorWithContext", "Error", "LogError")]
-    [InlineData("WarningWithContext", "Warning", "LogWarning")]
-    [InlineData("InfoWithContext", "Information", "LogInformation")]
-    public Task A_context_call_without_an_exception_logs_the_context_then_the_message(string fabrica, string level, string logging) =>
-        MigrationTest.RunAsync(
-            Code($$"""{|PHLM008:logger.{{fabrica}}(state, "Placing")|};"""),
-            Code($$"""
-                {
-                            logger.LogObject(Microsoft.Extensions.Logging.LogLevel.{{level}}, "Context", state);
-                            logger.{{logging}}("Placing");
-                        }
-                """),
-            "PHLM008");
+    [InlineData("""logger.ErrorWithContext(ex, state, "Placing failed");""")]
+    [InlineData("""logger.WarningWithContext(ex, state, "Retrying");""")]
+    [InlineData("""logger.ErrorWithContext(state, "Placing failed");""")]
+    [InlineData("""logger.WarningWithContext(state, "Retrying");""")]
+    [InlineData("""Action log = () => logger.WarningWithContext(state, "Retrying");""")]
+    public Task An_Error_or_WarningWithContext_with_a_string_message_carries_over(string body) =>
+        MigrationTest.NoneAsync(Code(body), "PHLM008");
 
-    [Fact]
-    public Task A_context_call_in_an_expression_logs_the_message_and_marks_the_lost_context() =>
+    [Theory]
+    [InlineData("""logger.InfoWithContext(state, "Placing")""", """logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, state, "Placing")""")]
+    [InlineData("""Action log = () => logger.InfoWithContext(state, "Placing")""", """Action log = () => logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, state, "Placing")""")]
+    public Task InfoWithContext_becomes_one_LogWithContext_call(string fabrica, string logging) =>
         MigrationTest.RunAsync(
-            Code("""Action log = () => {|PHLM008:logger.WarningWithContext(state, "Retrying")|};"""),
-            Code("""Action log = () => logger.LogWarning("Retrying") /* TODO(Fabrica.Watch migration): the context object is no longer logged; log it with LogObject(LogLevel.Warning, "Context", state) */;"""),
+            Code(fabrica.Replace("logger.InfoWithContext", "{|PHLM008:logger.InfoWithContext", StringComparison.Ordinal) + "|};"),
+            Code(logging + ";"),
             "PHLM008");
 
     [Theory]
@@ -91,6 +73,7 @@ public class PayloadAndReportTests
     [InlineData("""logger.CreateEvent(Level.Error, "Start failed.", state)""", """logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Error, "Start failed.", state);""")]
     [InlineData("""logger.CreateEvent(Level.Warning, "Retrying")""", """logger.LogWarning("Retrying");""")]
     [InlineData("""logger.CreateEvent(Level.Error, "Failed", ex, state)""", """logger.ErrorWithContext(ex, state, "Failed");""")]
+    [InlineData("""logger.CreateEvent(Level.Warning, "Retrying", ex, state)""", """logger.WarningWithContext(ex, state, "Retrying");""")]
     [InlineData("""logger.CreateEvent(Level.Debug, count, state)""", """logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Debug, $"{count}", state);""")]
     public Task An_event_created_and_logged_at_once_becomes_one_call(string created, string logging) =>
         MigrationTest.RunAsync(
@@ -99,15 +82,14 @@ public class PayloadAndReportTests
             "PHLM020");
 
     [Fact]
-    public Task An_event_with_context_below_error_logs_the_context_then_the_message() =>
+    public Task An_event_with_context_below_warning_becomes_LogWithContext() =>
         MigrationTest.RunAsync(
             Code("""
-                var e = {|PHLM020:logger.CreateEvent(Level.Warning, "Retrying", ex, state)|};
+                var e = {|PHLM020:logger.CreateEvent(Level.Info, "Retrying", ex, state)|};
                         {|PHLM020:logger.LogEvent(e)|};
                 """),
             Code("""
-                logger.LogObject(Microsoft.Extensions.Logging.LogLevel.Warning, "Context", state);
-                        logger.LogWarning(ex, "Retrying");
+                logger.LogWithContext(Microsoft.Extensions.Logging.LogLevel.Information, ex, state, "Retrying");
                 """),
             "PHLM020");
 

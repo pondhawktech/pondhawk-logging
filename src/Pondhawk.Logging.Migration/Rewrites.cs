@@ -9,7 +9,6 @@ using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace Pondhawk.Logging.Migration;
@@ -133,7 +132,7 @@ internal static class Rewrites
         };
     }
 
-    // ErrorWithContext(exception, context) gets a string message; any other …WithContext becomes LogObject + LogX.
+    // Error/WarningWithContext get a string message; any other level's …WithContext becomes LogWithContext(level, …).
     private static Rewriter? Context(IInvocationOperation? invocation, SemanticModel model)
     {
         if (invocation is null || ContextCall.Match(invocation) is not { } call)
@@ -149,36 +148,33 @@ internal static class Rewrites
             var messages = new Messages(model, original, now, context);
             var (exceptionText, stateText) = (messages.Current(exception), messages.Current(state)!);
 
-            if (string.Equals(call.Level, "Error", StringComparison.Ordinal) && exceptionText is not null)
-                return Renamed(now, "ErrorWithContext", [exceptionText, stateText, ErrorMessage(call.Message, exception, messages, context)]);
+            var arguments = new List<string>();
+            if (!call.HasOwnMethod)
+                arguments.Add(Logging + "LogLevel." + call.Level);
+            if (exceptionText is not null)
+                arguments.Add(exceptionText);
+            arguments.Add(stateText);
+            arguments.Add(ContextMessage(call, exception, messages, context));
 
-            var logger = ((MemberAccessExpressionSyntax)now.Expression).Expression.ToString();
-            var kind = call.Message is null ? MessageKind.None : LevelCall.KindOf(call.Message);
-            var arguments = (exceptionText is null ? [] : new[] { exceptionText }).Concat(messages.Simple(call.Message, kind, exception));
-            var log = logger + "." + call.Method + "(" + string.Join(", ", arguments) + ")";
-            var logContext = logger + ".LogObject(" + Logging + "LogLevel." + call.Level + ", \"Context\", " + stateText + ")";
-
-            if (!context.IsStatement)
-            {
-                context.Todo($"the context object is no longer logged; log it with LogObject(LogLevel.{call.Level}, \"Context\", {stateText})");
-                return SyntaxFactory.ParseExpression(log);
-            }
-
-            var block = "{" + context.NewLine + logContext + ";" + context.NewLine + log + ";" + context.NewLine + "}";
-            return SyntaxFactory.ParseStatement(block).WithAdditionalAnnotations(Formatter.Annotation);
+            return Renamed(now, call.Equivalent, arguments);
         };
     }
 
-    private static string ErrorMessage(IArgumentOperation? message, ExpressionSyntax? exception, Messages messages, RewriteContext context)
+    // A string message as written; any other as an interpolated string; none, the exception's message.
+    private static string ContextMessage(ContextCall call, ExpressionSyntax? exception, Messages messages, RewriteContext context)
     {
-        if (FabricaWatch.Written(message) is { } written)
-            return "$\"{" + messages.Current(written) + "}\"";
+        if (FabricaWatch.Written(call.Message) is { } written)
+        {
+            return LevelCall.Unwrapped(call.Message!).Type?.SpecialType == SpecialType.System_String
+                ? messages.Current(written)!
+                : "$\"{" + messages.Current(written) + "}\"";
+        }
 
         if (exception is IdentifierNameSyntax)
             return messages.Current(exception) + ".Message";
 
-        context.Todo("ErrorWithContext needs a message; say what failed");
-        return "\"Error\"";
+        context.Todo(call.Equivalent + " needs a message; say what happened");
+        return "\"" + call.Level + "\"";
     }
 
     // logger.Inspect(42, value) → logger.Inspect("42", value)
