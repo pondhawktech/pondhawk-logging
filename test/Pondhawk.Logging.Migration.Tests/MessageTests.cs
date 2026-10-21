@@ -29,6 +29,8 @@ public class MessageTests
             }
 
             int Next() => 1;
+            string Safe(string text) => text;
+            string PathOf(Order order) => "";
         }
         """;
 
@@ -62,7 +64,11 @@ public class MessageTests
     [InlineData("""logger.Warning("{0} failed: {1}", name, ex.InnerException?.GetBaseException().Message ?? name)""", """logger.LogWarning("{Name} failed: {Message}", name, ex.InnerException?.GetBaseException().Message ?? name)""")]
     [InlineData("""logger.Debug("Placed {0} of {1}", (object)count, name!)""", """logger.LogDebug("Placed {Count} of {Name}", (object)count, name)""")]
     [InlineData("""logger.Debug("Placed {0}", Next() + 1)""", """logger.LogDebug("Placed {Arg0}", Next() + 1)""")]
-    public Task A_hole_is_named_through_null_checks_calls_and_GetType(string fabrica, string logging) =>
+    [InlineData("""logger.Debug("Placed {0}", Safe(name))""", """logger.LogDebug("Placed {Name}", Safe(name))""")]
+    [InlineData("""logger.Debug("Placed {0}", PathOf(order))""", """logger.LogDebug("Placed {Arg0}", PathOf(order))""")]
+    [InlineData("""logger.Debug("Placed {0}", count > 0 ? name : "none")""", """logger.LogDebug("Placed {Name}", count > 0 ? name : "none")""")]
+    [InlineData("""logger.Debug("Total {0}", (int)order.Total)""", """logger.LogDebug("Total {OrderTotal}", (int)order.Total)""")]
+    public Task A_hole_is_named_through_null_checks_casts_calls_and_GetType(string fabrica, string logging) =>
         MigrationTest.RunAsync(Code("{|PHLM002:" + fabrica + "|};"), Code(logging + ";"), "PHLM002");
 
     [Fact]

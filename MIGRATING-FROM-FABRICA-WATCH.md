@@ -61,8 +61,9 @@ Search for `TODO(Fabrica.Watch migration)` when the runs are done.
   PHLM017 retypes it (to `MethodLogger` for a method that enters a trace, to Microsoft.Extensions.Logging's
   `ILogger` otherwise), but a type the member hands out only once every file using the member has no Fabrica.Watch
   left: changed earlier, it would change that type under their calls before those were rewritten. Until then the
-  diagnostic shows with no fix. A file using the member that still has something only reported holds it back — deal
-  with that and run again.
+  diagnostic shows with no fix, and its message names the files in the same project it is waiting for (a file in
+  another project — a test project subclassing a base class, say — holds it back too, but is not named). A file
+  using the member that still has something only reported holds it back — deal with that and run again.
 
 ## Where loggers come from
 

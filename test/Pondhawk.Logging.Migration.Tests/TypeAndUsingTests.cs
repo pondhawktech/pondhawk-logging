@@ -315,4 +315,99 @@ public class TypeAndUsingTests
             NumberOfIncrementalIterations = -4,
             NumberOfFixAllIterations = -3,
         }.RunAsync();
+
+    // Found in a trial migration: an alias of Fabrica.Watch's ILogger beside Microsoft.Extensions.Logging's using.
+    // Rewritten first, it would have retyped EnterMethod() to ILogger rather than MethodLogger.
+    [Fact]
+    public Task An_alias_of_the_logger_waits_for_the_members_that_hand_it_out() =>
+        new MigrationTest("""
+            using Microsoft.Extensions.Logging;
+            using ILogger = Fabrica.Watch.ILogger;
+
+            public abstract class BaseContext
+            {
+                private ILogger _logger;
+                protected {|PHLM017:ILogger|} EnterMethod() => null;
+            }
+            """, """
+            using Microsoft.Extensions.Logging;
+            using ILogger = Microsoft.Extensions.Logging.ILogger;
+            using Pondhawk.Logging;
+
+            public abstract class BaseContext
+            {
+                private ILogger _logger;
+                protected MethodLogger EnterMethod() => null;
+            }
+            """, "PHLM016", "PHLM017")
+        {
+            NumberOfIncrementalIterations = -3,
+            NumberOfFixAllIterations = -3,
+        }.RunAsync();
+
+    [Fact]
+    public Task The_message_names_the_files_a_handed_out_logger_waits_for()
+    {
+        const string helper = """
+            using Fabrica.Watch;
+
+            public abstract class CorrelatedObject
+            {
+                protected {|#0:ILogger|} EnterMethod() => null;
+            }
+            """;
+
+        var test = new MigrationTest(helper, helper, "PHLM017");
+        const string caller = """
+            using Fabrica.Watch;
+
+            public class Orders : CorrelatedObject
+            {
+                void Place() => EnterMethod().Debug("Placing");
+            }
+            """;
+
+        test.TestState.Sources.Add(("/0/Orders.cs", caller));
+        test.FixedState.Sources.Add(("/0/Orders.cs", caller));
+        test.TestState.ExpectedDiagnostics.Add(new Microsoft.CodeAnalysis.Testing.DiagnosticResult(Rules.HandedOut).WithLocation(0)
+            .WithArguments("EnterMethod", "Pondhawk.Logging.MethodLogger", "; waiting for Orders.cs, which still uses Fabrica.Watch"));
+        test.FixedState.ExpectedDiagnostics.AddRange(test.TestState.ExpectedDiagnostics);
+        return test.RunAsync();
+    }
+
+    // Found in a trial migration: logger?.Warning(…) was not rewritten, so the file kept its usings and its public
+    // helper's ILogger parameter was never retyped.
+    [Fact]
+    public Task A_helper_taking_a_logger_it_may_not_be_given_is_migrated_whole() =>
+        new MigrationTest("""
+            using Fabrica.Watch;
+
+            public static class Refusals
+            {
+                public static void Refuse(string reason, ILogger logger)
+                {
+                    logger?{|PHLM001:.Warning("Refused")|};
+                    Write(reason, logger);
+                }
+
+                private static void Write(string reason, ILogger logger) => logger?{|PHLM002:.Debug("{0}", reason)|};
+            }
+            """, """
+            using Microsoft.Extensions.Logging;
+
+            public static class Refusals
+            {
+                public static void Refuse(string reason, ILogger logger)
+                {
+                    logger?.LogWarning("Refused");
+                    Write(reason, logger);
+                }
+
+                private static void Write(string reason, ILogger logger) => logger?.LogDebug("{Reason}", reason);
+            }
+            """, "PHLM001", "PHLM002", "PHLM015", "PHLM017")
+        {
+            NumberOfIncrementalIterations = -6,
+            NumberOfFixAllIterations = -4,
+        }.RunAsync();
 }

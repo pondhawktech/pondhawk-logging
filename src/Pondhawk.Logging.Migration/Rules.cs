@@ -59,8 +59,8 @@ internal static class Rules
     public static readonly DiagnosticDescriptor HandedOut = Rule(
         "PHLM017",
         "Fabrica.Watch logger handed to other files",
-        "'{0}' hands out Fabrica.Watch's ILogger; use '{1}'",
-        "A member other files can see that returns, holds or takes Fabrica.Watch's ILogger is retyped: to MethodLogger for a method that enters a method trace (named EnterMethod…, or returning an EnterMethod call), since its callers dispose it, and to Microsoft.Extensions.Logging's ILogger otherwise. A type the member hands out is changed only once the files that use the member are migrated, so their calls are not hidden; until then the fix is not offered. The usings swap (PHLM015) follows.");
+        "'{0}' hands out Fabrica.Watch's ILogger; use '{1}'{2}",
+        "A member other files can see that returns, holds or takes Fabrica.Watch's ILogger is retyped: to MethodLogger for a method that enters a method trace (named EnterMethod…, or returning an EnterMethod call), since its callers dispose it, and to Microsoft.Extensions.Logging's ILogger otherwise. A type the member hands out is changed only once the files that use the member are migrated, so their calls are not hidden; until then the fix is not offered, and the message names the files in this project it waits for (files in other projects are checked by the fix but not named). The usings swap (PHLM015) follows.");
 
     public static readonly DiagnosticDescriptor Template = Rule(
         "PHLM002",

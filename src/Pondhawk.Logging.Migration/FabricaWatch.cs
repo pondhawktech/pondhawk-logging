@@ -56,12 +56,13 @@ internal static class FabricaWatch
 
     /// <summary>
     /// Whether the invocation calls <paramref name="type"/>.<paramref name="name"/> through instance syntax
-    /// (<c>x.Name(…)</c>) — not an extension method called as a static one, whose receiver is an argument.
+    /// (<c>x.Name(…)</c> or <c>x?.Name(…)</c>) — not an extension method called as a static one, whose receiver is
+    /// an argument.
     /// </summary>
     public static bool Calls(IInvocationOperation invocation, string type, string name) =>
         string.Equals(Declared(invocation).Name, name, StringComparison.Ordinal)
         && string.Equals(NameOf(Declared(invocation).ContainingType), type, StringComparison.Ordinal)
-        && invocation.Syntax is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax }
+        && invocation.Syntax is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax or MemberBindingExpressionSyntax }
         && !(Declared(invocation).IsExtensionMethod && Argument(invocation, 0)?.Syntax is ArgumentSyntax);
 
     /// <summary>The argument passed for the parameter at <paramref name="ordinal"/> of the declared method, if any.</summary>

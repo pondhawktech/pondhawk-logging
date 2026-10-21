@@ -104,6 +104,10 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
         if (ContextCall.Match(invocation) is { } withContext)
             return withContext.CarriesOver ? null : Rules.ContextCall;
 
+        // logger?.LeaveMethod() and the like: a trace that may not have been entered has no using to become.
+        if (name is "EnterMethod" or "LeaveMethod" or "EnterScope" or "LeaveScope" && IsConditional(invocation))
+            return null;
+
         return name switch
         {
             "EnterMethod" when invocation.Syntax.Parent is ExpressionStatementSyntax && IsLeftInSameBody(invocation) => Rules.MethodTrace,
@@ -115,6 +119,19 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
             _ => null,
         };
     }
+
+    // What PHLM017's message says the retype waits for: the files still on Fabrica.Watch, the first few named.
+    private static string Waiting(System.Collections.Generic.List<string> blockers) =>
+        blockers.Count switch
+        {
+            0 => string.Empty,
+            1 => "; waiting for " + blockers[0] + ", which still uses Fabrica.Watch",
+            <= 3 => "; waiting for " + string.Join(", ", blockers) + ", which still use Fabrica.Watch",
+            _ => "; waiting for " + string.Join(", ", blockers.Take(3)) + " and " + (blockers.Count - 3).ToString(System.Globalization.CultureInfo.InvariantCulture) + " more files, which still use Fabrica.Watch",
+        };
+
+    private static bool IsConditional(IInvocationOperation invocation) =>
+        invocation.Syntax is InvocationExpressionSyntax { Expression: MemberBindingExpressionSyntax };
 
     // logger.EnterMethod(); paired with a logger.LeaveMethod() in the same function. One without (enter, then
     // return the logger for the caller to dispose) is not a trace to close here, and carries over as it is.
@@ -298,21 +315,47 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
         if (blocked)
             return;
 
-        foreach (var (node, rule, argument) in sites)
+        ReportTypeChanges(context, root, sites);
+    }
+
+    // Once nothing else in the file needs a rule: the rewrites that change a logger's type, then PHLM017's
+    // retyping of members that hand loggers out, then the usings.
+    private static void ReportTypeChanges(SemanticModelAnalysisContext context, SyntaxNode root, System.Collections.Generic.List<(SyntaxNode Node, DiagnosticDescriptor Rule, string Argument)> sites)
+    {
+        var model = context.SemanticModel;
+        var cancellationToken = context.CancellationToken;
+
+        // While the file hands out Fabrica.Watch's ILogger, PHLM017 retypes those members first. Until then an alias
+        // of it (using ILogger = Fabrica.Watch.ILogger;), which would retype every ILogger in the file at once, and
+        // the type written in full in those members' signatures, wait.
+        var handsOut = HandsOutFabricaTypes(root, model, cancellationToken);
+        var handedOut = handsOut ? HandedOut.Find(root, model, cancellationToken) : [];
+        var ready = sites
+            .Where(s => !handsOut || (s.Node.FirstAncestorOrSelf<UsingDirectiveSyntax>() is not { Alias: not null } && !handedOut.Any(h => h.Span.Contains(s.Node.Span))))
+            .ToList();
+
+        foreach (var (node, rule, argument) in ready)
             context.ReportDiagnostic(Diagnostic.Create(rule, node.GetLocation(), argument));
+
+        if (ready.Count > 0)
+            return;
+
+        // The members that hand out Fabrica.Watch's ILogger are retyped first; the usings go once none is left.
+        if (handsOut)
+        {
+            foreach (var name in handedOut)
+            {
+                var member = HandedOut.MemberOf(name, model, cancellationToken)?.Name;
+                var replacement = HandedOut.Replacement(name).Replace("global::", string.Empty);
+                context.ReportDiagnostic(Diagnostic.Create(Rules.HandedOut, name.GetLocation(), member, replacement, Waiting(HandedOut.Blockers(name, model, cancellationToken))));
+            }
+
+            return;
+        }
 
         var usings = root.DescendantNodes().OfType<UsingDirectiveSyntax>().Where(FabricaWatch.IsFabricaUsing).ToList();
         if (sites.Count > 0 || usings.Count == 0)
             return;
-
-        // The members that hand out Fabrica.Watch's ILogger are retyped first; the usings go once none is left.
-        if (HandsOutFabricaTypes(root, model, cancellationToken))
-        {
-            foreach (var name in HandedOut.Find(root, model, cancellationToken))
-                context.ReportDiagnostic(Diagnostic.Create(Rules.HandedOut, name.GetLocation(), HandedOut.MemberOf(name, model, cancellationToken)?.Name, HandedOut.Replacement(name).Replace("global::", string.Empty)));
-
-            return;
-        }
 
         foreach (var directive in usings)
             context.ReportDiagnostic(Diagnostic.Create(Rules.Usings, directive.GetLocation(), directive.Name!.ToString()));
@@ -336,7 +379,8 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
         if (symbol is INamespaceSymbol || QualifiedRule(whole, model, cancellationToken) is not null)
             return symbol is INamespaceSymbol && whole == FabricaWatch.Whole(name) ? null : QualifiedRule(whole, model, cancellationToken) is null ? whole : null;
 
-        if (whole.Parent is InvocationExpressionSyntax call && model.GetOperation(call, cancellationToken) is IInvocationOperation invocation)
+        if ((whole.Parent as InvocationExpressionSyntax ?? (whole.Parent as MemberBindingExpressionSyntax)?.Parent as InvocationExpressionSyntax) is { } call
+            && model.GetOperation(call, cancellationToken) is IInvocationOperation invocation)
             return Classify(invocation).Rule is null && !Acquisition.IsLocatorGetLogger(invocation) && !Acquisition.IsSlim(invocation) ? call : null;
 
         if (symbol is IPropertySymbol property && string.Equals(FabricaWatch.NameOf(property.ContainingType), FabricaWatch.Logger, StringComparison.Ordinal)

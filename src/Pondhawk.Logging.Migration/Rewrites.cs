@@ -60,6 +60,28 @@ internal static class Rewrites
         if (rewrite is null)
             return null;
 
+        return Placed(node, rewrite, newLine);
+    }
+
+    // Where a rewrite is applied: to the statement a call stands as, which it may turn into another statement and
+    // put its TODOs above; or to the call alone, with its TODOs after it.
+    private static (SyntaxNode, Func<SyntaxNode, SyntaxNode>) Placed(SyntaxNode node, Rewriter rewrite, string newLine)
+    {
+        // logger?.Debug(…); standing as a statement: the call is rewritten in place, and may still become a statement.
+        if (node is InvocationExpressionSyntax && node.Parent is ConditionalAccessExpressionSyntax { Parent: ExpressionStatementSyntax conditionalStatement } conditional
+            && conditional.WhenNotNull == node)
+        {
+            return (conditionalStatement, current =>
+            {
+                var now = (ExpressionStatementSyntax)current;
+                var access = (ConditionalAccessExpressionSyntax)now.Expression;
+                var context = new RewriteContext(isStatement: true, newLine) { Receiver = access.Expression };
+                var result = rewrite(access.WhenNotNull, context);
+                var replaced = result is StatementSyntax s ? s.WithTriviaFrom(now) : now.WithExpression(access.WithWhenNotNull((ExpressionSyntax)result));
+                return context.Mark(replaced);
+            });
+        }
+
         // A call standing as a statement may become another statement, and takes its TODOs above it.
         if (node is InvocationExpressionSyntax && node.Parent is ExpressionStatementSyntax statement)
         {
@@ -109,11 +131,17 @@ internal static class Rewrites
             return call;
         }
 
-        var logger = ((MemberAccessExpressionSyntax)call.Expression).Expression;
+        // logger?.Debug(() => …) checks the level only on a logger that is there.
+        var conditional = context.Receiver is not null;
+        var logger = context.Receiver ?? ((MemberAccessExpressionSyntax)call.Expression).Expression;
         if (!IsSimple(logger))
             context.Todo($"'{logger}' is now evaluated twice, once for the level check");
 
-        return SyntaxFactory.ParseStatement("if (" + logger + ".IsEnabled(" + Logging + "LogLevel." + level + ")) " + call.WithoutTrivia() + ";");
+        var check = conditional
+            ? logger + "?.IsEnabled(" + Logging + "LogLevel." + level + ") == true"
+            : logger + ".IsEnabled(" + Logging + "LogLevel." + level + ")";
+        var logged = conditional ? logger + "?" + call.WithoutTrivia() : call.WithoutTrivia().ToString();
+        return SyntaxFactory.ParseStatement("if (" + check + ") " + logged + ";");
     }
 
     // logger.IsDebugEnabled → logger.IsEnabled(LogLevel.Debug)
@@ -278,7 +306,7 @@ internal static class Rewrites
     // protected ILogger EnterMethod() → protected MethodLogger EnterMethod(); public ILogger Logger → Microsoft.Extensions.Logging's
     private static Rewriter? HandedOutType(SyntaxNode node)
     {
-        if (node is not SimpleNameSyntax name)
+        if (node is not TypeSyntax name)
             return null;
 
         var replacement = HandedOut.Replacement(name);
@@ -324,7 +352,8 @@ internal static class Rewrites
     private static readonly string[] TracingMethods = ["EnterMethod", "LeaveMethod", "EnterScope", "LeaveScope"];
 
     private static bool IsTracing(IInvocationOperation invocation) =>
-        TracingMethods.Any(name => FabricaWatch.Calls(invocation, FabricaWatch.LoggerExtensions, name));
+        invocation.Syntax is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax }
+        && TracingMethods.Any(name => FabricaWatch.Calls(invocation, FabricaWatch.LoggerExtensions, name));
 
     private static bool IsSimple(ExpressionSyntax expression) =>
         expression is IdentifierNameSyntax or ThisExpressionSyntax
@@ -343,11 +372,17 @@ internal static class Rewrites
         return index < 0 || index >= current.ArgumentList.Arguments.Count ? null : current.ArgumentList.Arguments[index].Expression.ToString();
     }
 
-    // receiver.Name(arguments), keeping the receiver and the call's surrounding text as they were.
+    // receiver.Name(arguments) — or the .Name(arguments) of receiver?.Name(arguments) — keeping the receiver and
+    // the call's surrounding text as they were.
     private static InvocationExpressionSyntax Renamed(InvocationExpressionSyntax invocation, string method, IEnumerable<string> arguments)
     {
-        var access = (MemberAccessExpressionSyntax)invocation.Expression;
-        var renamed = access.WithName(SyntaxFactory.IdentifierName(method).WithTriviaFrom(access.Name));
+        ExpressionSyntax renamed = invocation.Expression switch
+        {
+            MemberAccessExpressionSyntax access => access.WithName(SyntaxFactory.IdentifierName(method).WithTriviaFrom(access.Name)),
+            MemberBindingExpressionSyntax binding => binding.WithName(SyntaxFactory.IdentifierName(method).WithTriviaFrom(binding.Name)),
+            var other => other,
+        };
+
         var list = SyntaxFactory.ParseArgumentList("(" + string.Join(", ", arguments) + ")").WithTriviaFrom(invocation.ArgumentList);
         return invocation.WithExpression(renamed).WithArgumentList(list);
     }

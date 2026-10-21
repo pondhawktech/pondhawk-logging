@@ -37,8 +37,9 @@ internal static class CarriedOver
                 return string.Equals(FabricaWatch.NameOf(field.ContainingType), FabricaWatch.PayloadType, StringComparison.Ordinal);
 
             case IMethodSymbol:
-                return name.Parent is MemberAccessExpressionSyntax { Parent: InvocationExpressionSyntax call } access
-                    && access.Name == name
+                return name.Parent is MemberAccessExpressionSyntax { Parent: InvocationExpressionSyntax } or MemberBindingExpressionSyntax { Parent: InvocationExpressionSyntax }
+                    && name.Parent.Parent is InvocationExpressionSyntax call
+                    && ((name.Parent as MemberAccessExpressionSyntax)?.Name ?? ((MemberBindingExpressionSyntax)name.Parent).Name) == name
                     && model.GetOperation(call, cancellationToken) is IInvocationOperation invocation
                     && IsCarriedCall(invocation);
 

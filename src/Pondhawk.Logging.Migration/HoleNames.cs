@@ -25,10 +25,10 @@ internal static class HoleNames
     private const int Taken = 2;
 
     /// <summary>A name for each expression, in order.</summary>
-    public static IReadOnlyList<string> For(IReadOnlyList<ExpressionSyntax> expressions)
+    public static IReadOnlyList<string> For(IReadOnlyList<ExpressionSyntax> expressions, SemanticModel? model = null)
     {
         var texts = expressions.Select(e => e.ToString()).ToList();
-        var segments = expressions.Select(Segments).ToList();
+        var segments = expressions.Select(e => Segments(e, bound: null, model)).ToList();
         var widths = segments.Select(s => s is null ? 0 : Math.Min(Taken, s.Count)).ToList();
         var first = Enumerable.Range(0, expressions.Count).Select(i => texts.IndexOf(texts[i])).ToList();
         var names = Enumerable.Range(0, expressions.Count).Select(i => NameOf(segments[i], widths[i], first[i])).ToList();
@@ -85,11 +85,11 @@ internal static class HoleNames
 
     // order.Id → [order, Id]; this.total → [total]; row?.Status → [row, Status]; name! and name ?? "none" → [name];
     // cause.GetType().FullName → [cause, Type]; a member after a call starts again (x.Next().Message → [Message]);
-    // nothing to name it by (a literal, a call, arithmetic) → null.
-    private static List<string>? Segments(ExpressionSyntax expression) => Segments(expression, bound: null);
-
-    // bound: the segments of the receiver a ?. binds its members to.
-    private static List<string>? Segments(ExpressionSyntax expression, List<string>? bound)
+    // Safe(runUid) → [runUid] when it returns its argument's type; ok ? reason : "none" → [reason];
+    // nothing to name it by (a literal, any other call, arithmetic) → null.
+    // bound: the segments of the receiver a ?. binds its members to. model, when there is one, tells a call that
+    // passes its one argument through (Safe(runUid), Trim(name)) from one that looks something up (PathOf(context)).
+    private static List<string>? Segments(ExpressionSyntax expression, List<string>? bound, SemanticModel? model)
     {
         switch (expression)
         {
@@ -98,33 +98,45 @@ internal static class HoleNames
             case MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax or BaseExpressionSyntax } access:
                 return [access.Name.Identifier.ValueText];
             case MemberAccessExpressionSyntax { Name.Identifier.ValueText: "FullName" or "Name" } access when IsGetType(access.Expression):
-                return Segments(access.Expression, bound);
+                return Segments(access.Expression, bound, model);
             case MemberAccessExpressionSyntax access:
-                var left = Segments(access.Expression, bound) ?? [];
+                var left = Segments(access.Expression, bound, model) ?? [];
                 left.Add(access.Name.Identifier.ValueText);
                 return left;
             case MemberBindingExpressionSyntax binding when bound is not null:
                 return [.. bound, binding.Name.Identifier.ValueText];
             case ConditionalAccessExpressionSyntax conditional:
-                return Segments(conditional.WhenNotNull, Segments(conditional.Expression, bound) ?? []);
+                return Segments(conditional.WhenNotNull, Segments(conditional.Expression, bound, model) ?? [], model);
             case InvocationExpressionSyntax invocation when IsGetType(invocation):
                 var receiver = invocation.Expression is MemberAccessExpressionSyntax { Expression: not (ThisExpressionSyntax or BaseExpressionSyntax) } target
-                    ? Segments(target.Expression, bound) ?? []
+                    ? Segments(target.Expression, bound, model) ?? []
                     : invocation.Expression is MemberBindingExpressionSyntax ? [.. bound ?? []] : [];
                 receiver.Add("Type");
                 return receiver;
+            case InvocationExpressionSyntax { ArgumentList.Arguments: [var only] } call when PassesThrough(call, only.Expression, model):
+                return Segments(only.Expression, bound, model);
+            case ConditionalExpressionSyntax choice:
+                return Segments(choice.WhenTrue, bound, model) ?? Segments(choice.WhenFalse, bound, model);
             case PostfixUnaryExpressionSyntax postfix when postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression):
-                return Segments(postfix.Operand, bound);
+                return Segments(postfix.Operand, bound, model);
             case BinaryExpressionSyntax coalesce when coalesce.IsKind(SyntaxKind.CoalesceExpression):
-                return Segments(coalesce.Left, bound);
+                return Segments(coalesce.Left, bound, model);
             case CastExpressionSyntax cast:
-                return Segments(cast.Expression, bound);
+                return Segments(cast.Expression, bound, model);
             case ParenthesizedExpressionSyntax parenthesized:
-                return Segments(parenthesized.Expression, bound);
+                return Segments(parenthesized.Expression, bound, model);
             default:
                 return null;
         }
     }
+
+    // A call returning the type of its one argument: a wrapper that cleans or guards a value, not one that looks
+    // something up.
+    private static bool PassesThrough(InvocationExpressionSyntax call, ExpressionSyntax argument, SemanticModel? model) =>
+        model is not null
+        && call.SyntaxTree == model.SyntaxTree
+        && model.GetTypeInfo(call).Type is { TypeKind: not TypeKind.Error } returned
+        && SymbolEqualityComparer.Default.Equals(returned, model.GetTypeInfo(argument).Type);
 
     // x.GetType(), GetType(), x?.GetType() — and the same with a trailing ! — with no arguments.
     private static bool IsGetType(ExpressionSyntax expression)
