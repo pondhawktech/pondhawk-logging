@@ -56,6 +56,12 @@ internal static class Rules
         "'{0}' names Fabrica.Watch's ILogger; use Microsoft.Extensions.Logging's",
         "A fully qualified Fabrica.Watch.ILogger becomes Microsoft.Extensions.Logging.ILogger. A simple 'ILogger' carries over with the using swap (PHLM015).");
 
+    public static readonly DiagnosticDescriptor HandedOut = Rule(
+        "PHLM017",
+        "Fabrica.Watch logger handed to other files",
+        "'{0}' hands out Fabrica.Watch's ILogger; use '{1}'",
+        "A member other files can see that returns, holds or takes Fabrica.Watch's ILogger is retyped: to MethodLogger for a method that enters a method trace (named EnterMethod…, or returning an EnterMethod call), since its callers dispose it, and to Microsoft.Extensions.Logging's ILogger otherwise. A type the member hands out is changed only once the files that use the member are migrated, so their calls are not hidden; until then the fix is not offered. The usings swap (PHLM015) follows.");
+
     public static readonly DiagnosticDescriptor Template = Rule(
         "PHLM002",
         "Fabrica.Watch positional template",

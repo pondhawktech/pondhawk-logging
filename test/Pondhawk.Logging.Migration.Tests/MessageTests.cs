@@ -55,6 +55,16 @@ public class MessageTests
     public Task A_renamed_template_overload_is_a_template_too(string fabrica, string logging) =>
         MigrationTest.RunAsync(Code("{|PHLM002:" + fabrica + "|};"), Code(logging + ";"), "PHLM002");
 
+    [Theory]
+    [InlineData("""logger.Error(ex, "Caught {0} in {1}", ex.GetType().FullName!, GetType().FullName!)""", """logger.LogError(ex, "Caught {ExType} in {Type}", ex.GetType().FullName, GetType().FullName)""")]
+    [InlineData("""logger.Debug("Type {0}", x?.GetType().Name)""", """logger.LogDebug("Type {XType}", x?.GetType().Name)""")]
+    [InlineData("""logger.Info("Order {0} for {1}", customer?.Id, customer?.Order.Id ?? 0)""", """logger.LogInformation("Order {CustomerId} for {OrderId}", customer?.Id, customer?.Order.Id ?? 0)""")]
+    [InlineData("""logger.Warning("{0} failed: {1}", name, ex.InnerException?.GetBaseException().Message ?? name)""", """logger.LogWarning("{Name} failed: {Message}", name, ex.InnerException?.GetBaseException().Message ?? name)""")]
+    [InlineData("""logger.Debug("Placed {0} of {1}", (object)count, name!)""", """logger.LogDebug("Placed {Count} of {Name}", (object)count, name)""")]
+    [InlineData("""logger.Debug("Placed {0}", Next() + 1)""", """logger.LogDebug("Placed {Arg0}", Next() + 1)""")]
+    public Task A_hole_is_named_through_null_checks_calls_and_GetType(string fabrica, string logging) =>
+        MigrationTest.RunAsync(Code("{|PHLM002:" + fabrica + "|};"), Code(logging + ";"), "PHLM002");
+
     [Fact]
     public Task Different_values_that_name_alike_take_more_of_their_name_then_a_number() =>
         MigrationTest.RunAsync(

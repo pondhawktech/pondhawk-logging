@@ -37,6 +37,7 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
         Rules.SharedType,
         Rules.Usings,
         Rules.LoggerType,
+        Rules.HandedOut,
         Rules.Events,
         Rules.Bootstrap,
         Rules.Bridge,
@@ -231,9 +232,9 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
     }
 
     // A file whose members give Fabrica.Watch's ILogger to other files — a base class's protected ILogger EnterMethod(),
-    // a helper returning a logger — is where an application hands out its loggers, the part of a migration done
-    // by hand. Swapping its usings would change those members' types under the files that call them, before their
-    // calls are rewritten, and hide those calls from every rule. It keeps its usings until it is changed by hand.
+    // a helper returning a logger — is where an application hands out its loggers. Swapping its usings would change
+    // those members' types under the files that call them, before their calls are rewritten, and hide those calls
+    // from every rule. It keeps its usings while PHLM017 retypes those members, each once its callers are migrated.
     private static bool HandsOutFabricaTypes(SyntaxNode root, SemanticModel model, System.Threading.CancellationToken cancellationToken) =>
         root.DescendantNodes().OfType<MemberDeclarationSyntax>()
             .Where(m => m is not BaseTypeDeclarationSyntax and not BaseNamespaceDeclarationSyntax)
@@ -301,8 +302,17 @@ public sealed class FabricaWatchAnalyzer : DiagnosticAnalyzer
             context.ReportDiagnostic(Diagnostic.Create(rule, node.GetLocation(), argument));
 
         var usings = root.DescendantNodes().OfType<UsingDirectiveSyntax>().Where(FabricaWatch.IsFabricaUsing).ToList();
-        if (sites.Count > 0 || usings.Count == 0 || HandsOutFabricaTypes(root, model, cancellationToken))
+        if (sites.Count > 0 || usings.Count == 0)
             return;
+
+        // The members that hand out Fabrica.Watch's ILogger are retyped first; the usings go once none is left.
+        if (HandsOutFabricaTypes(root, model, cancellationToken))
+        {
+            foreach (var name in HandedOut.Find(root, model, cancellationToken))
+                context.ReportDiagnostic(Diagnostic.Create(Rules.HandedOut, name.GetLocation(), HandedOut.MemberOf(name, model, cancellationToken)?.Name, HandedOut.Replacement(name).Replace("global::", string.Empty)));
+
+            return;
+        }
 
         foreach (var directive in usings)
             context.ReportDiagnostic(Diagnostic.Create(Rules.Usings, directive.GetLocation(), directive.Name!.ToString()));

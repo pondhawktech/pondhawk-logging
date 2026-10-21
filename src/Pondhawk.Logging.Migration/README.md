@@ -16,7 +16,7 @@ add `Pondhawk.Logging`. Then apply every fix across the solution:
 ```bash
 dotnet format analyzers <solution> --severity info --diagnostics \
   PHLM001 PHLM002 PHLM003 PHLM004 PHLM005 PHLM006 PHLM007 PHLM008 PHLM009 PHLM011 \
-  PHLM012 PHLM013 PHLM014 PHLM015 PHLM016 PHLM020
+  PHLM012 PHLM013 PHLM014 PHLM015 PHLM016 PHLM017 PHLM020
 ```
 
 Run it until it changes nothing — three or four runs. Calls on a logger are rewritten first, then where the
@@ -40,7 +40,7 @@ Search for `TODO(Fabrica.Watch migration)` when the run is done.
 | Rule | Finds | Becomes |
 |---|---|---|
 | PHLM001 | `Trace/Debug/Info/Warning/Error(message)`, `(exception, message)`, or a template overload with no arguments | `LogTrace/LogDebug/LogInformation/LogWarning/LogError`. A constant message stays the template; any other is the value of a `{Message}` (a string) or `{Value}` hole; an exception without a message logs its own. |
-| PHLM002 | A positional template with arguments: `Debug("Placed {0} for {1:N0}", id, order.Total)` (or `DebugFormat(…)`, as some copies name it) | `LogDebug("Placed {Id} for {OrderTotal:N0}", id, order.Total)`. Holes are named from the arguments (last two name segments; a clash takes another segment, then a number; `Arg0` for an argument with no name); alignment and format kept; a value used twice is passed twice. A template that is not a constant, an explicit array, or a format that cannot be read is formatted with `string.Format` as before — TODO. |
+| PHLM002 | A positional template with arguments: `Debug("Placed {0} for {1:N0}", id, order.Total)` (or `DebugFormat(…)`, as some copies name it) | `LogDebug("Placed {Id} for {OrderTotal:N0}", id, order.Total)`. Holes are named from the arguments (last two name segments, looking through `?.`, `!`, a cast and the left of `??`; `x.GetType().FullName` → `XType`; after a call, the member that follows — `ex.GetBaseException().Message` → `Message`; a clash takes another segment, then a number; `Arg0` for an argument with no name); alignment and format kept; a value used twice is passed twice. A template that is not a constant, an explicit array, or a format that cannot be read is formatted with `string.Format` as before — TODO. |
 | PHLM003 | An interpolated or concatenated message | A message template and its values: `$"Placed {count}"` → `"Placed {Count}", count` |
 | PHLM004 | A `Func<string>` message: `Debug(() => …)` | `if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug(…)`, so it is still built only when the level is on |
 | PHLM005 | `IsTraceEnabled` … `IsErrorEnabled` | `IsEnabled(LogLevel.Trace)` … `IsEnabled(LogLevel.Error)` (`Info` → `Information`) |
@@ -55,6 +55,7 @@ Search for `TODO(Fabrica.Watch migration)` when the run is done.
 | PHLM014 | `Fabrica.Watch.SensitiveAttribute`, `Fabrica.Watch.Sink.PayloadType` written in full | `Pondhawk.Logging`'s |
 | PHLM015 | `using Fabrica.Watch;` (and `.Sink`, …) once nothing in the file needs it | `using Microsoft.Extensions.Logging;` and `using Pondhawk.Logging;` — each only if the file uses it |
 | PHLM016 | `Fabrica.Watch.ILogger` written in full | `Microsoft.Extensions.Logging.ILogger` |
+| PHLM017 | Fabrica.Watch's `ILogger` in the signature of a member that is not private: `protected ILogger EnterMethod()`, `public ILogger Logger { get; }`, `internal void Write(ILogger logger)` | `MethodLogger` for a method that enters a trace (named `EnterMethod…`, or returning an `EnterMethod` call), Microsoft.Extensions.Logging's `ILogger` otherwise. A type the member hands out (return, property, field, `out`) is changed only once every file using the member has no Fabrica.Watch left; until then the fix is not offered. |
 | PHLM020 | `var ev = logger.CreateEvent(…); logger.LogEvent(ev);` | The one call that says the same: `LogJson/LogXml/LogSql/LogYaml/LogText(level, title, payload)`, `LogObject(level, title, value)`, `ErrorWithContext`/`WarningWithContext(ex, context, title)` (or `LogWithContext(level, ex, context, title)` below Warning), or `LogX(title)`. An event changed or passed on before it is logged, or whose level or payload type is not a constant, is reported only. |
 | PHLM021 | `WatchFactoryBuilder`, its `Use…` extensions, `WatchFactoryLocator.SetFactory` | **Report only.** Configure `AddWatch` / `AddCloudWatch` / `AddJournaldConsole`; `LoggingFactoryLocator.SetFactory` once |
 | PHLM022 | The Fabrica.Watch.Bridges provider | **Report only.** Remove it — Microsoft.Extensions.Logging is the API now |
@@ -69,8 +70,8 @@ exception, or the `(context, message)` overloads without one that some copies ad
 
 The report-only rules keep a file's Fabrica.Watch using until they are dealt with by hand. So does a file that
 hands out Fabrica.Watch's `ILogger` through a member that is not private — a base class's
-`protected ILogger EnterMethod()`: swapping it early would change that type under its callers before their calls
-were rewritten. Change it by hand after the runs, then run once more.
+`protected ILogger EnterMethod()` — until PHLM017 has retyped those members: swapping it early would change that
+type under its callers before their calls were rewritten.
 
 ## Worth knowing
 

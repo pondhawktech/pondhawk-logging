@@ -53,6 +53,7 @@ internal static class Rewrites
             "PHLM013" => ObjectExtension(invocation),
             "PHLM014" => QualifiedType(node, "Pondhawk.Logging."),
             "PHLM016" => QualifiedType(node, "Microsoft.Extensions.Logging."),
+            "PHLM017" => HandedOutType(node),
             _ => null,
         };
 
@@ -272,6 +273,16 @@ internal static class Rewrites
         // A using alias needs a name it can resolve on its own; elsewhere the name is reduced afterwards.
         var prefix = node.FirstAncestorOrSelf<UsingDirectiveSyntax>() is null ? "global::" : string.Empty;
         return (current, _) => SyntaxFactory.ParseName(prefix + target + last).WithTriviaFrom(current);
+    }
+
+    // protected ILogger EnterMethod() → protected MethodLogger EnterMethod(); public ILogger Logger → Microsoft.Extensions.Logging's
+    private static Rewriter? HandedOutType(SyntaxNode node)
+    {
+        if (node is not SimpleNameSyntax name)
+            return null;
+
+        var replacement = HandedOut.Replacement(name);
+        return (current, _) => SyntaxFactory.ParseTypeName(replacement).WithTriviaFrom(current);
     }
 
     // A function body's method and scope tracing, rewritten as one.
