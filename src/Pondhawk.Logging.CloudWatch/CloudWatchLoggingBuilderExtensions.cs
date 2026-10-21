@@ -112,7 +112,8 @@ public static class CloudWatchLoggingBuilderExtensions
         Func<string?> instanceId,
         bool ownsClient)
     {
-        // Resolvable for applications that would rather look the destination up than capture it.
+        // Resolvable for applications that would rather look the destination up than capture it. Only the first
+        // registration's: an application that registers CloudWatch more than once holds its destinations itself.
         builder.Services.TryAddSingleton(destination);
 
         // Fixed at Information, and scoped to this provider, so it neither follows nor disturbs any other
@@ -123,7 +124,8 @@ public static class CloudWatchLoggingBuilderExtensions
         builder.Services.AddSingleton<ILoggerProvider>(_ =>
             new CloudWatchLoggerProvider(
                 new CloudWatchLoggerProcessor(clientFactory, destination, service, options, instanceId, ownsClient),
-                new ZLoggerOptions()));
+                new ZLoggerOptions(),
+                options.Categories));
 
         return builder;
     }

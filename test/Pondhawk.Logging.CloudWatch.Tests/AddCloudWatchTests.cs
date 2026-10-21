@@ -12,8 +12,8 @@ using ZLogger;
 namespace Pondhawk.Logging.CloudWatch.Tests;
 
 /// <summary>
-/// Tests the <c>AddCloudWatch</c> wiring: the fixed level floor scoped to the CloudWatch provider, and the
-/// destination's registration.
+/// Tests the <c>AddCloudWatch</c> wiring: the fixed level floor scoped to the CloudWatch provider, the
+/// destination's registration, and routing categories between registrations.
 /// </summary>
 public class AddCloudWatchTests
 {
@@ -133,5 +133,144 @@ public class AddCloudWatchTests
         var services = new ServiceCollection();
 
         Should.Throw<ArgumentException>(() => services.AddLogging(b => b.AddCloudWatch("not a valid:group", "orders")));
+    }
+
+    // Routing by category
+
+    private const string MainGroup = "/pondhawk/Main";
+    private const string AccessGroup = "/pondhawk/Access";
+    private const string Access = "Pondhawk.Gateway.Access";
+
+    private static ILoggingBuilder AddFake(ILoggingBuilder builder, Amazon.CloudWatchLogs.IAmazonCloudWatchLogs client, string group, Action<CloudWatchOptions> route)
+    {
+        var options = new CloudWatchOptions { FlushInterval = TimeSpan.FromMilliseconds(20) };
+        route(options);
+
+        return builder.AddCloudWatch(() => client, new CloudWatchDestination(group), "gateway", options, () => "i-0123", ownsClient: false);
+    }
+
+    // Read once the factory is disposed, when every batch has been sent.
+    private static List<string> Categories(FakeCloudWatchLogs fake, string group) =>
+        fake.Puts.Where(p => p.LogGroupName == group).SelectMany(p => p.LogEvents).Select(e =>
+        {
+            using var document = JsonDocument.Parse(e.Message);
+            return document.RootElement.GetProperty("Category").GetString();
+        }).ToList();
+
+    private static ILoggerFactory MainAndAccess(Amazon.CloudWatchLogs.IAmazonCloudWatchLogs client) =>
+        LoggerFactory.Create(b =>
+        {
+            AddFake(b, client, MainGroup, o => o.ExceptCategories(Access));
+            AddFake(b, client, AccessGroup, o => o.OnlyCategories(Access));
+        });
+
+    [Fact]
+    public void EachCategory_GoesToExactlyOneOfTwoRoutedRegistrations()
+    {
+        var (client, fake) = FakeCloudWatchLogs.Create();
+        var factory = MainAndAccess(client);
+
+        foreach (var category in new[] { Access, Access + ".Bff", "pondhawk.gateway.access", Access + "X", "Pondhawk.Gateway", "Orders" })
+            factory.CreateLogger(category).LogInformation("one");
+        factory.Dispose();
+
+        Categories(fake, AccessGroup).ShouldBe([Access, Access + ".Bff", "pondhawk.gateway.access"], ignoreOrder: true);
+        Categories(fake, MainGroup).ShouldBe([Access + "X", "Pondhawk.Gateway", "Orders"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void ACategoryARegistrationDoesNotSend_IsNeverEnabledForIt()
+    {
+        var (client, _) = FakeCloudWatchLogs.Create();
+
+        using (var only = LoggerFactory.Create(b => AddFake(b, client, AccessGroup, o => o.OnlyCategories(Access))))
+        {
+            only.CreateLogger("Orders").IsEnabled(LogLevel.Critical).ShouldBeFalse();
+            only.CreateLogger(Access + "X").IsEnabled(LogLevel.Critical).ShouldBeFalse();
+            only.CreateLogger(Access + ".Bff").IsEnabled(LogLevel.Information).ShouldBeTrue();
+        }
+
+        using (var except = LoggerFactory.Create(b => AddFake(b, client, MainGroup, o => o.ExceptCategories(Access))))
+        {
+            except.CreateLogger(Access).IsEnabled(LogLevel.Critical).ShouldBeFalse();
+            except.CreateLogger(Access + ".Bff").IsEnabled(LogLevel.Critical).ShouldBeFalse();
+            except.CreateLogger("Orders").IsEnabled(LogLevel.Information).ShouldBeTrue();
+        }
+    }
+
+    [Fact]
+    public void AnExcludedCategory_IsNeverFormatted()
+    {
+        var (client, _) = FakeCloudWatchLogs.Create();
+        var (excluded, included) = (false, false);
+
+        var factory = LoggerFactory.Create(b => AddFake(b, client, MainGroup, o => o.ExceptCategories(Access)));
+        factory.CreateLogger(Access).LogError("{Value}", new Formatted(() => excluded = true));
+        factory.CreateLogger("Orders").LogError("{Value}", new Formatted(() => included = true));
+        factory.Dispose();
+
+        included.ShouldBeTrue();
+        excluded.ShouldBeFalse();
+    }
+
+    private sealed class Formatted(Action onFormat)
+    {
+        public override string ToString()
+        {
+            onFormat();
+            return "formatted";
+        }
+    }
+
+    [Fact]
+    public void OneGroupDenied_LeavesTheOtherSending()
+    {
+        var (client, fake) = FakeCloudWatchLogs.Create();
+        fake.DeniedGroup = AccessGroup;
+        var factory = MainAndAccess(client);
+
+        for (var i = 0; i < 3; i++)
+        {
+            factory.CreateLogger(Access).LogWarning("access {I}", i);
+            factory.CreateLogger("Orders").LogWarning("main {I}", i);
+            Thread.Sleep(50);
+        }
+
+        factory.Dispose();
+
+        Categories(fake, AccessGroup).ShouldBeEmpty();
+        Categories(fake, MainGroup).ShouldBe(["Orders", "Orders", "Orders"]);
+    }
+
+    [Fact]
+    public void WithNoRouting_EveryCategoryIsSent()
+    {
+        new CloudWatchOptions().Categories.Includes("Anything.At.All").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void OnlyAndExcept_CannotBothBeSet()
+    {
+        Should.Throw<InvalidOperationException>(() => new CloudWatchOptions().OnlyCategories("A").ExceptCategories("B"));
+        Should.Throw<InvalidOperationException>(() => new CloudWatchOptions().ExceptCategories("A").OnlyCategories("B"));
+    }
+
+    [Fact]
+    public void OnlyAndExcept_TakeSeveralNames_AcrossCalls()
+    {
+        var route = new CloudWatchOptions().OnlyCategories("A", "B").OnlyCategories("C").Categories;
+
+        route.Includes("A.X").ShouldBeTrue();
+        route.Includes("B").ShouldBeTrue();
+        route.Includes("C").ShouldBeTrue();
+        route.Includes("D").ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ABlankCategory_IsRefused(string category)
+    {
+        Should.Throw<ArgumentException>(() => new CloudWatchOptions().OnlyCategories(category));
     }
 }
