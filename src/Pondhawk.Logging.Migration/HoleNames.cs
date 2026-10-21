@@ -5,14 +5,18 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Pondhawk.Logging.Migration;
 
 /// <summary>
 /// Names a message template's holes from the expressions that fill them: the last two name segments,
-/// PascalCased (<c>this.order.Id</c> → <c>OrderId</c>); a collision between different expressions takes one more
-/// leading segment, then a numeric suffix; an expression with no name to use is <c>Arg0</c>, <c>Arg1</c> ….
+/// PascalCased (<c>this.order.Id</c> → <c>OrderId</c>, <c>cause.GetType().FullName</c> → <c>CauseType</c>),
+/// looking through <c>?.</c>, <c>!</c>, a cast and the left of <c>??</c>, and starting again after a call
+/// (<c>x.Next().Message</c> → <c>Message</c>); a collision between different expressions takes one more leading
+/// segment, then a numeric suffix; an expression with no name to use is <c>Arg0</c>, <c>Arg1</c> ….
 /// The same expression twice keeps one name. Names must be unique: two holes sharing a name keep only one value
 /// in the structured properties.
 /// </summary>
@@ -79,8 +83,13 @@ internal static class HoleNames
             ? "Arg" + index.ToString(CultureInfo.InvariantCulture)
             : string.Concat(segments.Skip(segments.Count - width).Select(Pascal));
 
-    // order.Id → [order, Id]; this.total → [total]; anything that is not a chain of names → null.
-    private static List<string>? Segments(ExpressionSyntax expression)
+    // order.Id → [order, Id]; this.total → [total]; row?.Status → [row, Status]; name! and name ?? "none" → [name];
+    // cause.GetType().FullName → [cause, Type]; a member after a call starts again (x.Next().Message → [Message]);
+    // nothing to name it by (a literal, a call, arithmetic) → null.
+    private static List<string>? Segments(ExpressionSyntax expression) => Segments(expression, bound: null);
+
+    // bound: the segments of the receiver a ?. binds its members to.
+    private static List<string>? Segments(ExpressionSyntax expression, List<string>? bound)
     {
         switch (expression)
         {
@@ -88,14 +97,49 @@ internal static class HoleNames
                 return [name.Identifier.ValueText];
             case MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax or BaseExpressionSyntax } access:
                 return [access.Name.Identifier.ValueText];
-            case MemberAccessExpressionSyntax access when Segments(access.Expression) is { } left:
+            case MemberAccessExpressionSyntax { Name.Identifier.ValueText: "FullName" or "Name" } access when IsGetType(access.Expression):
+                return Segments(access.Expression, bound);
+            case MemberAccessExpressionSyntax access:
+                var left = Segments(access.Expression, bound) ?? [];
                 left.Add(access.Name.Identifier.ValueText);
                 return left;
+            case MemberBindingExpressionSyntax binding when bound is not null:
+                return [.. bound, binding.Name.Identifier.ValueText];
+            case ConditionalAccessExpressionSyntax conditional:
+                return Segments(conditional.WhenNotNull, Segments(conditional.Expression, bound) ?? []);
+            case InvocationExpressionSyntax invocation when IsGetType(invocation):
+                var receiver = invocation.Expression is MemberAccessExpressionSyntax { Expression: not (ThisExpressionSyntax or BaseExpressionSyntax) } target
+                    ? Segments(target.Expression, bound) ?? []
+                    : invocation.Expression is MemberBindingExpressionSyntax ? [.. bound ?? []] : [];
+                receiver.Add("Type");
+                return receiver;
+            case PostfixUnaryExpressionSyntax postfix when postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression):
+                return Segments(postfix.Operand, bound);
+            case BinaryExpressionSyntax coalesce when coalesce.IsKind(SyntaxKind.CoalesceExpression):
+                return Segments(coalesce.Left, bound);
+            case CastExpressionSyntax cast:
+                return Segments(cast.Expression, bound);
             case ParenthesizedExpressionSyntax parenthesized:
-                return Segments(parenthesized.Expression);
+                return Segments(parenthesized.Expression, bound);
             default:
                 return null;
         }
+    }
+
+    // x.GetType(), GetType(), x?.GetType() — and the same with a trailing ! — with no arguments.
+    private static bool IsGetType(ExpressionSyntax expression)
+    {
+        while (expression is PostfixUnaryExpressionSyntax postfix && postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression))
+            expression = postfix.Operand;
+
+        return expression is InvocationExpressionSyntax { ArgumentList.Arguments.Count: 0 } invocation
+            && invocation.Expression switch
+            {
+                IdentifierNameSyntax name => string.Equals(name.Identifier.ValueText, "GetType", StringComparison.Ordinal),
+                MemberAccessExpressionSyntax access => string.Equals(access.Name.Identifier.ValueText, "GetType", StringComparison.Ordinal),
+                MemberBindingExpressionSyntax binding => string.Equals(binding.Name.Identifier.ValueText, "GetType", StringComparison.Ordinal),
+                _ => false,
+            };
     }
 
     private static string Pascal(string name)

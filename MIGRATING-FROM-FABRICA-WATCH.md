@@ -30,12 +30,13 @@ compile.
 ```bash
 dotnet format analyzers <solution> --severity info --diagnostics \
   PHLM001 PHLM002 PHLM003 PHLM004 PHLM005 PHLM006 PHLM007 PHLM008 PHLM009 PHLM011 \
-  PHLM012 PHLM013 PHLM014 PHLM015 PHLM016 PHLM020
+  PHLM012 PHLM013 PHLM014 PHLM015 PHLM016 PHLM017 PHLM020
 ```
 
 Run it again until a run changes no files — three or four runs. The order matters and the rules take care of
 it across runs: calls on a logger are rewritten first, then where the logger comes from (`WatchFactoryLocator`,
-`EnterMethodSlim`, a fully qualified `ILogger`), and last the file's usings (PHLM015), which turn every name that
+`EnterMethodSlim`, a fully qualified `ILogger`, a member handing a logger to other files), and last the file's
+usings (PHLM015), which turn every name that
 means the same thing — `ILogger`, `[Sensitive]`, `PayloadType`, `this.GetLogger()`, `this.EnterMethod()`,
 `LogSql`, `LogObject` … — into the new one. The rules are listed in the
 [package README](src/Pondhawk.Logging.Migration/README.md).
@@ -55,16 +56,21 @@ Search for `TODO(Fabrica.Watch migration)` when the runs are done.
   (PHLM022), a logger's scope or category (PHLM023), or a Fabrica.Watch API no rule knows (PHLM024 — APIs a copy
   of Fabrica.Watch added, sink types). Run the analyzer with `--verify-no-changes --report <dir>` and these ids to
   list them.
-- It **hands out loggers**: a member that is not private has Fabrica.Watch's `ILogger` in its signature — a base
-  class's `protected ILogger EnterMethod()`, a helper returning a logger. Swapping its usings early would change
-  that type under every file calling it, before those calls were rewritten. It waits for you.
+- It **hands out loggers** that PHLM017 has not retyped yet: a member that is not private has Fabrica.Watch's
+  `ILogger` in its signature — a base class's `protected ILogger EnterMethod()`, a helper returning a logger.
+  PHLM017 retypes it (to `MethodLogger` for a method that enters a trace, to Microsoft.Extensions.Logging's
+  `ILogger` otherwise), but a type the member hands out only once every file using the member has no Fabrica.Watch
+  left: changed earlier, it would change that type under their calls before those were rewritten. Until then the
+  diagnostic shows with no fix. A file using the member that still has something only reported holds it back — deal
+  with that and run again.
 
 ## Where loggers come from
 
 An application usually hands out loggers through a few helpers: a base class, an extension on its own context
-type, a factory. These are the heart of step 3. Change each to the new API **after** the analyzer runs, never
-before — a helper already returning a Microsoft.Extensions.Logging logger hides its callers' Fabrica.Watch calls
-from the rules.
+type, a factory. These are the heart of step 3. PHLM017 changes their signatures once their callers are migrated;
+what a helper does inside — building a logger with Fabrica.Watch's factory — is yours. Change it **after** the
+analyzer runs, never before — a helper already returning a Microsoft.Extensions.Logging logger hides its callers'
+Fabrica.Watch calls from the rules.
 
 - A helper that **returns a logger** creates one from the factory:
 
