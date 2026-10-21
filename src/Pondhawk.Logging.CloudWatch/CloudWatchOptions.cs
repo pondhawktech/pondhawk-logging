@@ -3,6 +3,7 @@
 
 using Amazon;
 using Amazon.Runtime;
+using CommunityToolkit.Diagnostics;
 
 namespace Pondhawk.Logging.CloudWatch;
 
@@ -48,4 +49,47 @@ public class CloudWatchOptions
     /// Default is 100.
     /// </summary>
     public int MaxHeldEvents { get; set; } = 100;
+
+    private readonly List<string> _categories = [];
+    private bool? _only;
+
+    /// <summary>
+    /// Sends only these categories to this registration's log group, and any category they are a dotted prefix
+    /// of (<c>Orders.Access</c> takes <c>Orders.Access.Bff</c>, not <c>Orders.AccessX</c>), ignoring case. Every
+    /// other category is never enabled for this provider: not formatted, not queued. Can be called more than
+    /// once; cannot be combined with <see cref="ExceptCategories"/>.
+    /// </summary>
+    /// <param name="categories">The category names.</param>
+    /// <returns>These options, for chaining.</returns>
+    /// <exception cref="ArgumentException">A name is null, empty or whitespace.</exception>
+    /// <exception cref="InvalidOperationException"><see cref="ExceptCategories"/> was called on these options.</exception>
+    public CloudWatchOptions OnlyCategories(params string[] categories) => Route(categories, only: true);
+
+    /// <summary>
+    /// Sends every category to this registration's log group except these, and any category they are a dotted
+    /// prefix of, ignoring case. Those are never enabled for this provider: not formatted, not queued. Can be
+    /// called more than once; cannot be combined with <see cref="OnlyCategories"/>.
+    /// </summary>
+    /// <param name="categories">The category names.</param>
+    /// <returns>These options, for chaining.</returns>
+    /// <exception cref="ArgumentException">A name is null, empty or whitespace.</exception>
+    /// <exception cref="InvalidOperationException"><see cref="OnlyCategories"/> was called on these options.</exception>
+    public CloudWatchOptions ExceptCategories(params string[] categories) => Route(categories, only: false);
+
+    /// <summary>The categories this registration sends, from <see cref="OnlyCategories"/> or <see cref="ExceptCategories"/>.</summary>
+    internal CategoryRoute Categories => _only is { } only ? new CategoryRoute(_categories, only) : CategoryRoute.All;
+
+    private CloudWatchOptions Route(string[] categories, bool only)
+    {
+        Guard.IsNotNull(categories);
+        if (_only is { } set && set != only)
+            throw new InvalidOperationException("OnlyCategories and ExceptCategories cannot both be set on one AddCloudWatch registration; register CloudWatch twice instead.");
+
+        foreach (var category in categories)
+            Guard.IsNotNullOrWhiteSpace(category, nameof(categories));
+
+        _only = only;
+        _categories.AddRange(categories);
+        return this;
+    }
 }

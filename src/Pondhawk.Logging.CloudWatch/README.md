@@ -35,6 +35,7 @@ builder.Logging.AddCloudWatch("/my-app/Production", "orders", o =>
 | `RetentionDays` | `30` | Given to a group this provider creates; an existing group's retention is never touched. |
 | `BatchSize` / `FlushInterval` | `500` / 1 s | A send happens at whichever comes first. Clamped to 1–10,000 and to at most an hour. |
 | `MaxHeldEvents` | `100` | Warning-and-above events held while there is nowhere to send them. |
+| `OnlyCategories(…)` / `ExceptCategories(…)` | every category | Send only these categories, or all but these — see [Routing by category](#routing-by-category). |
 
 ## The event
 
@@ -143,6 +144,32 @@ rebind to a different group tears nothing down: the stream is made in the new gr
 destination is also registered as a singleton, so it can be resolved from DI.
 
 `CloudWatchDestination.Sanitize` replaces every character a log group name may not contain with `-`.
+
+## Routing by category
+
+One `AddCloudWatch` sends every category to its group. To split categories across groups, register it
+once per group and say which categories each takes:
+
+```csharp
+var main = new CloudWatchDestination("/my-gateway/Production");
+var access = new CloudWatchDestination("/my-gateway/Production/access");
+
+builder.Logging.AddCloudWatch(main, "gateway", o => o.ExceptCategories("MyGateway.Access"));
+builder.Logging.AddCloudWatch(access, "gateway", o => o.OnlyCategories("MyGateway.Access"));
+```
+
+- A name matches as a `Logging:LogLevel` category does, ignoring case: the category itself, or any category it
+  is a dotted prefix of. `MyGateway.Access` takes `MyGateway.Access.Bff`, not `MyGateway.AccessX`.
+- Each takes several names and can be called more than once. One registration takes `OnlyCategories` or
+  `ExceptCategories`, not both: that throws.
+- A category a registration does not send is **never enabled** for it: `IsEnabled` is false for that provider,
+  and the event is not formatted or queued there.
+- Each registration is its own provider, with its own stream, flush thread, pause and held events: one group
+  denied or paused leaves the other sending.
+- Both share what is keyed by the provider type: the Information floor and `Logging:CloudWatch:LogLevel`. A
+  level from configuration cannot differ between them.
+- **Only the first destination is registered in DI.** Hold each `CloudWatchDestination` yourself, as above,
+  to rebind it.
 
 ## Level
 
