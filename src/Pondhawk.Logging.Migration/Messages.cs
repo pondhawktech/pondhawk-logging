@@ -69,7 +69,7 @@ internal sealed class Messages(SemanticModel model, InvocationExpressionSyntax o
         foreach (var repeated in template.Values.GroupBy(v => v).Where(g => g.Count() > 1 && !IsCheap(g.Key)))
             context.Todo($"'{repeated.Key}' fills {repeated.Count()} holes and is now evaluated {repeated.Count()} times");
 
-        return [template.ToLiteral(), .. template.Values.Select(v => Current(v)!)];
+        return [template.ToLiteral(model), .. template.Values.Select(v => Current(v)!)];
     }
 
     // The template could not be read: format it as Fabrica.Watch did.
@@ -89,7 +89,7 @@ internal sealed class Messages(SemanticModel model, InvocationExpressionSyntax o
     {
         var template = new MessageTemplate();
         AddParts(template, message);
-        return [template.ToLiteral(), .. template.Values.Select(v => v.ToString())];
+        return [template.ToLiteral(model), .. template.Values.Select(v => v.ToString())];
     }
 
     private void AddParts(MessageTemplate template, ExpressionSyntax expression)

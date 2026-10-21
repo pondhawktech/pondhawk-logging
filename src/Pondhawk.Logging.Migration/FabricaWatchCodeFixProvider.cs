@@ -130,7 +130,8 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
 
         var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         var model = await document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-        if (root?.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true) is not SimpleNameSyntax name || model is null)
+        var span = diagnostic.Location.SourceSpan;
+        if (root?.FindNode(span, getInnermostNodeForTie: true).AncestorsAndSelf().FirstOrDefault(n => n.Span == span) is not TypeSyntax name || model is null)
             return false;
 
         if (!HandedOut.GivesOut(name))
@@ -154,13 +155,7 @@ public sealed class FabricaWatchCodeFixProvider : CodeFixProvider
     {
         var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         var model = await document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-        if (root is null || model is null)
-            return true;
-
-        return root.DescendantNodes()
-            .OfType<SimpleNameSyntax>()
-            .Where(n => !n.IsVar && n.FirstAncestorOrSelf<UsingDirectiveSyntax>() is null)
-            .Any(n => FabricaWatch.Owns(model.GetSymbolInfo(n, cancellationToken).Symbol));
+        return root is null || model is null || HandedOut.UsesFabrica(root, model, cancellationToken);
     }
 
     // A global using of Fabrica.Watch is in scope everywhere; adding Microsoft.Extensions.Logging beside it would

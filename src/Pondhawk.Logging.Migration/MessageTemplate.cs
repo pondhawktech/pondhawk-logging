@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -35,9 +36,9 @@ internal sealed class MessageTemplate
     }
 
     /// <summary>The template as a C# string literal, its holes named from their values.</summary>
-    public string ToLiteral()
+    public string ToLiteral(SemanticModel? model = null)
     {
-        var names = HoleNames.For(Values);
+        var names = HoleNames.For(Values, model);
         var text = new StringBuilder();
         foreach (var part in _parts)
             text.Append(part is Hole hole ? "{" + names[hole.Index] + hole.Suffix + "}" : (string)part);

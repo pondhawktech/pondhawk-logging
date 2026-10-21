@@ -26,6 +26,9 @@ internal sealed class RewriteContext(bool isStatement, string newLine)
     /// <summary>The line ending the file uses.</summary>
     public string NewLine { get; } = newLine;
 
+    /// <summary>The receiver of a <c>logger?.X(…)</c> statement being rewritten; null for any other call.</summary>
+    public ExpressionSyntax? Receiver { get; init; }
+
     /// <summary>Leaves a note for a person to check what the rewrite could not settle.</summary>
     public void Todo(string note)
     {
