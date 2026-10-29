@@ -40,6 +40,7 @@ public class BuildContext : FrostingContext
         "src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj",
         "src/Pondhawk.Logging.Console/Pondhawk.Logging.Console.csproj",
         "src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj",
+        "src/Pondhawk.Logging.Journald/Pondhawk.Logging.Journald.csproj",
         "src/Pondhawk.Logging.AspNetCore/Pondhawk.Logging.AspNetCore.csproj",
         "src/Pondhawk.Logging.Migration/Pondhawk.Logging.Migration.csproj"
     ];
