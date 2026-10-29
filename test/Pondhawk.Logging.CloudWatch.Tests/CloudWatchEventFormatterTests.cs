@@ -4,6 +4,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.Events;
 using Shouldly;
 using Xunit;
 
@@ -11,9 +12,9 @@ namespace Pondhawk.Logging.CloudWatch.Tests;
 
 public class CloudWatchEventFormatterTests
 {
-    private static CloudWatchEvent Event(Action<CloudWatchEvent> configure = null, Exception exception = null, LogLevel level = LogLevel.Error)
+    private static CapturedEvent Event(Action<CapturedEvent> configure = null, Exception exception = null, LogLevel level = LogLevel.Error)
     {
-        var logEvent = new CloudWatchEvent
+        var logEvent = new CapturedEvent
         {
             Level = level,
             Category = "My.Category",
@@ -27,7 +28,7 @@ public class CloudWatchEventFormatterTests
         return logEvent;
     }
 
-    private static JsonElement Parse(CloudWatchEvent logEvent)
+    private static JsonElement Parse(CapturedEvent logEvent)
     {
         using var document = JsonDocument.Parse(CloudWatchEventFormatter.Format(logEvent));
         return document.RootElement.Clone();
@@ -65,7 +66,7 @@ public class CloudWatchEventFormatterTests
     [Fact]
     public void SubjectAndTenant_AreFields_InsightsCanFilterOn()
     {
-        var json = Parse(new CloudWatchEvent { Level = LogLevel.Warning, Category = "C", Title = "t", Subject = "kchen", Tenant = "acme" });
+        var json = Parse(new CapturedEvent { Level = LogLevel.Warning, Category = "C", Title = "t", Subject = "kchen", Tenant = "acme" });
 
         json.GetProperty("Subject").GetString().ShouldBe("kchen");
         json.GetProperty("Tenant").GetString().ShouldBe("acme");
@@ -74,7 +75,7 @@ public class CloudWatchEventFormatterTests
     [Fact]
     public void AnEventWithoutPayloadCorrelationOrNesting_LeavesThemOut()
     {
-        var json = Parse(new CloudWatchEvent { Level = LogLevel.Warning, Category = "C", Title = "t" });
+        var json = Parse(new CapturedEvent { Level = LogLevel.Warning, Category = "C", Title = "t" });
 
         json.TryGetProperty("CorrelationId", out _).ShouldBeFalse();
         json.TryGetProperty("Subject", out _).ShouldBeFalse();
@@ -242,19 +243,19 @@ public class CloudWatchEventFormatterTests
     [Fact]
     public void AHugeTitle_IsCut()
     {
-        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent { Level = LogLevel.Error, Category = "My.Category", Title = new string('t', 2_000_000) });
+        var message = CloudWatchEventFormatter.Format(new CapturedEvent { Level = LogLevel.Error, Category = "My.Category", Title = new string('t', 2_000_000) });
 
         Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
         using var document = JsonDocument.Parse(message);
         var title = document.RootElement.GetProperty("Title").GetString();
         title.ShouldEndWith("...[truncated]");
-        title.Length.ShouldBeLessThan(CloudWatchEventFormatter.MaxTitleChars + 32);
+        title.Length.ShouldBeLessThan(EventShaper.MaxTitleChars + 32);
     }
 
     [Fact]
     public void AHugeCategoryCorrelationIdSubjectAndTenant_AreCut()
     {
-        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent
+        var message = CloudWatchEventFormatter.Format(new CapturedEvent
         {
             Level = LogLevel.Warning,
             Category = new string('c', 1_000_000),
@@ -303,7 +304,7 @@ public class CloudWatchEventFormatterTests
         Encoding.UTF8.GetByteCount(message).ShouldBeLessThanOrEqualTo(CloudWatchEventFormatter.MaxEventBytes);
         using var document = JsonDocument.Parse(message);
         var exceptions = document.RootElement.GetProperty("Exceptions");
-        exceptions.GetArrayLength().ShouldBe(CloudWatchEventFormatter.MaxExceptions + 1);
+        exceptions.GetArrayLength().ShouldBe(EventShaper.MaxExceptions + 1);
         exceptions[0].GetProperty("Message").GetString().ShouldBe("level 19999");
         exceptions.EnumerateArray().Last().GetProperty("Message").GetString().ShouldContain("further inner exceptions cut");
     }
@@ -317,7 +318,7 @@ public class CloudWatchEventFormatterTests
         for (var i = 0; i < 40; i++)
             chain = new InvalidOperationException(new string('<', 20_000), chain);
 
-        var message = CloudWatchEventFormatter.Format(new CloudWatchEvent
+        var message = CloudWatchEventFormatter.Format(new CapturedEvent
         {
             Level = LogLevel.Error, Category = "My.Category", Title = "it broke", Subject = "kchen", Tenant = "acme", Exception = chain,
         });

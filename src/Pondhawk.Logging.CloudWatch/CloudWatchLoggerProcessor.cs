@@ -89,7 +89,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     private readonly int _maxHeld;
     private readonly TimeSpan _heldRetryInterval;
 
-    private readonly Channel<CloudWatchEvent> _channel;
+    private readonly Channel<CapturedEvent> _channel;
     private readonly TaskCompletionSource<bool> _flushCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _disposed;
 
@@ -170,7 +170,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         _maxHeld = Math.Max(0, options.MaxHeldEvents);
         _heldRetryInterval = heldRetryInterval is { } retry && retry > TimeSpan.Zero ? retry : DefaultHeldRetryInterval;
 
-        _channel = Channel.CreateUnbounded<CloudWatchEvent>(new UnboundedChannelOptions
+        _channel = Channel.CreateUnbounded<CapturedEvent>(new UnboundedChannelOptions
         {
             SingleWriter = false,
             SingleReader = true,
@@ -233,12 +233,12 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private static CloudWatchEvent Capture(IZLoggerEntry entry)
+    private static CapturedEvent Capture(IZLoggerEntry entry)
     {
         var info = entry.LogInfo;
         var operation = Ambient<IOperationContext>.Current;
 
-        var logEvent = new CloudWatchEvent
+        var logEvent = new CapturedEvent
         {
             Level = info.LogLevel,
             Category = info.Category.Name,
@@ -277,7 +277,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
 
     private async Task FlushLoopAsync()
     {
-        var batch = new List<CloudWatchEvent>(Math.Min(_batchSize, 1_024));
+        var batch = new List<CapturedEvent>(Math.Min(_batchSize, 1_024));
         var reader = _channel.Reader;
 
         try
@@ -341,7 +341,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     /// Waits for an event to arrive. With events held it waits only <see cref="_heldRetryInterval"/>, so
     /// they go out once they can even if nothing else is ever logged. False when the channel is finished.
     /// </summary>
-    private async Task<bool> WaitForWorkAsync(ChannelReader<CloudWatchEvent> reader)
+    private async Task<bool> WaitForWorkAsync(ChannelReader<CapturedEvent> reader)
     {
         if (HeldEventCount == 0)
             return await reader.WaitToReadAsync().ConfigureAwait(false);
@@ -358,7 +358,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private async Task SendAsync(List<CloudWatchEvent> batch, bool final)
+    private async Task SendAsync(List<CapturedEvent> batch, bool final)
     {
         if (_offForProcess || (batch.Count == 0 && HeldEventCount == 0))
             return;
@@ -622,7 +622,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         cause is AccessDeniedException
         || cause is AmazonServiceException { ErrorCode: "AccessDeniedException" or "UnrecognizedClientException" };
 
-    private static Outgoing ToOutgoing(CloudWatchEvent logEvent) =>
+    private static Outgoing ToOutgoing(CapturedEvent logEvent) =>
         new(
             new InputLogEvent
             {
@@ -635,7 +635,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     /// Keeps the Warning-and-above events of <paramref name="batch"/>. Only those are formatted: during an
     /// outage everything else is discarded, and is not worth the work first.
     /// </summary>
-    private void Hold(List<CloudWatchEvent> batch)
+    private void Hold(List<CapturedEvent> batch)
     {
         if (_maxHeld == 0)
             return;

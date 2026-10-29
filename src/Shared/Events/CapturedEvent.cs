@@ -3,13 +3,13 @@
 
 using Microsoft.Extensions.Logging;
 
-namespace Pondhawk.Logging.CloudWatch;
+namespace Pondhawk.Logging.Events;
 
 /// <summary>
-/// What the processor copies out of a pooled ZLogger entry on the calling thread: everything
-/// <see cref="CloudWatchEventFormatter"/> needs to write the event's JSON later, on the flush thread.
+/// What a processor copies out of a pooled ZLogger entry on the calling thread: everything
+/// <see cref="EventShaper"/> needs to shape the event later, on whichever thread writes it.
 /// </summary>
-internal sealed class CloudWatchEvent
+internal sealed class CapturedEvent
 {
     public LogLevel Level { get; init; }
 

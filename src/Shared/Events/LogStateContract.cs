@@ -1,10 +1,10 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-namespace Pondhawk.Logging.CloudWatch;
+namespace Pondhawk.Logging.Events;
 
 /// <summary>
-/// What the Pondhawk.Logging API puts on the log state, as this provider reads it: the property names and the
+/// What the Pondhawk.Logging API puts on the log state, as the providers that compile this file read it: the property names and the
 /// payload type numbers. A copy rather than a reference, because no package may reference Pondhawk.Logging — an
 /// application references it from NuGet, vendors its source, or drops it. The test project checks these against the API's own values.
 /// </summary>
