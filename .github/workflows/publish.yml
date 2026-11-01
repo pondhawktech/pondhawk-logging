@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   actions: read
+  id-token: write
 
 jobs:
   publish:
@@ -43,12 +44,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: NuGet login (OIDC to a temporary API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: kampilan
+
       - name: Push to NuGet.org
         run: |
           for package in packages/*.nupkg; do
             echo "Pushing $package"
             dotnet nuget push "$package" \
               --source https://api.nuget.org/v3/index.json \
-              --api-key ${{ secrets.NUGET_ORG_API_KEY }} \
+              --api-key ${{ steps.login.outputs.NUGET_API_KEY }} \
               --skip-duplicate
           done
