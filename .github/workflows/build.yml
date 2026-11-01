@@ -24,7 +24,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Build and Test
-        run: dotnet run --project build/Build.csproj -- --target=Test --build-number=${{ github.run_number }}
+        run: dotnet run --project build/Build.csproj -- --target=Test
 
       # The Journald sink against the runner's journald, read back with journalctl. The runner user cannot read
       # the system journal, hence sudo.
@@ -34,9 +34,15 @@ jobs:
           JOURNALD_LIVE: '1'
           JOURNALD_LIVE_JOURNALCTL: sudo journalctl
 
+      # A prerelease of the next patch, so a build never claims a released version.
+      - name: Resolve version
+        id: version
+        if: github.ref == 'refs/heads/main'
+        run: dotnet run --project build/Build.csproj -- --target=Version --next=true --suffix=ci.${{ github.run_number }}
+
       - name: Pack
         if: github.ref == 'refs/heads/main'
-        run: dotnet run --project build/Build.csproj -- --target=Pack --exclusive --build-number=${{ github.run_number }}
+        run: dotnet run --project build/Build.csproj -- --target=Pack --exclusive --package-version=${{ steps.version.outputs.version }}
 
       - name: Push
         if: github.ref == 'refs/heads/main'
