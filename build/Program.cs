@@ -3,7 +3,7 @@
 using System;
 using System.IO.Compression;
 using System.Linq;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Cake.Common;
 using Cake.Common.IO;
@@ -28,8 +28,8 @@ public class BuildContext : FrostingContext
 {
     public new string Configuration { get; }
     public string Solution { get; }
-    public string BuildNumber { get; }
-    public string? VersionSuffix { get; }
+    public string? PackageVersion { get; }
+    public bool SkipDuplicate { get; }
     public DirectoryPath Artifacts { get; }
     public string? NuGetSource { get; }
     public string? NuGetApiKey { get; }
@@ -49,12 +49,8 @@ public class BuildContext : FrostingContext
     {
         Configuration = context.Argument("configuration", "Release");
         Solution = context.Argument("solution", "pondhawk-logging.slnx");
-        BuildNumber = context.Argument("build-number",
-            context.Environment.GetEnvironmentVariable("BUILD_NUMBER") ?? "0");
-        VersionSuffix = context.Argument<string?>("version-suffix", null)
-            ?? context.Environment.GetEnvironmentVariable("VERSION_SUFFIX");
-        if (BuildNumber == "0" && VersionSuffix is null)
-            VersionSuffix = "local";
+        PackageVersion = context.Argument<string?>("package-version", null);
+        SkipDuplicate = context.Argument("skip-duplicate", true);
         Artifacts = context.Argument("artifacts", "artifacts");
         NuGetSource = context.Argument<string?>("nuget-source", null)
             ?? context.Environment.GetEnvironmentVariable("NUGET_SOURCE");
@@ -62,34 +58,70 @@ public class BuildContext : FrostingContext
             ?? context.Environment.GetEnvironmentVariable("NUGET_API_KEY");
     }
 
-    /// <summary>
-    /// The version inputs every dotnet invocation gets. Only the build number and suffix travel on the
-    /// command line; each project derives its own version from its own version.json (see
-    /// src/Directory.Build.props), so a project reference is never evaluated at the referencing project's
-    /// version.
-    /// </summary>
-    public DotNetMSBuildSettings VersionProperties()
+    private const string VersionFile = "src/Directory.Build.props";
+
+    private static readonly Regex VersionPattern =
+        new(@"<VersionPrefix>(?<version>\d+\.\d+\.\d+)</VersionPrefix>", RegexOptions.Compiled);
+
+    /// <summary>The last released version, from <see cref="VersionFile"/>.</summary>
+    public string ReadVersion()
     {
-        var settings = new DotNetMSBuildSettings().WithProperty("BuildNumber", BuildNumber);
-
-        if (VersionSuffix is not null)
-            settings = settings.WithProperty("VersionSuffix", VersionSuffix);
-
-        return settings;
+        var match = VersionPattern.Match(System.IO.File.ReadAllText(VersionFile));
+        return match.Success
+            ? match.Groups["version"].Value
+            : throw new System.InvalidOperationException(
+                $"No <VersionPrefix>MAJOR.MINOR.PATCH</VersionPrefix> in {VersionFile}.");
     }
 
-    public string GetProjectVersion(string projectPath)
+    /// <summary>The version a Pack writes. A plain local Pack must never look released.</summary>
+    public string GetPackVersion() => PackageVersion ?? $"{ReadVersion()}-local";
+
+    /// <summary>The next patch after the last released version. Does not change the file.</summary>
+    public string NextPatch()
     {
-        var projectDir = System.IO.Path.GetDirectoryName(projectPath)!;
-        var versionFile = System.IO.Path.Combine(projectDir, "version.json");
-        var json = System.IO.File.ReadAllText(versionFile);
-        var doc = JsonDocument.Parse(json);
-        var majorMinor = doc.RootElement.GetProperty("version").GetString()
-            ?? throw new System.InvalidOperationException($"Missing 'version' in {versionFile}");
-        var version = $"{majorMinor}.{BuildNumber}";
-        if (VersionSuffix is not null)
-            version = $"{version}-{VersionSuffix}";
-        return version;
+        var parts = ReadVersion().Split('.').Select(int.Parse).ToArray();
+        return $"{parts[0]}.{parts[1]}.{parts[2] + 1}";
+    }
+
+    /// <summary>Applies a semantic bump, rewrites <see cref="VersionFile"/>, and returns the new version.</summary>
+    public string BumpVersion(string part)
+    {
+        var parts = ReadVersion().Split('.').Select(int.Parse).ToArray();
+        var next = part switch
+        {
+            "major" => $"{parts[0] + 1}.0.0",
+            "minor" => $"{parts[0]}.{parts[1] + 1}.0",
+            "patch" => $"{parts[0]}.{parts[1]}.{parts[2] + 1}",
+            _ => throw new System.InvalidOperationException(
+                $"Unknown bump '{part}' (expected none, major, minor or patch)."),
+        };
+        var text = System.IO.File.ReadAllText(VersionFile);
+        System.IO.File.WriteAllText(VersionFile, VersionPattern.Replace(text, $"<VersionPrefix>{next}</VersionPrefix>"));
+        return next;
+    }
+}
+
+/// <summary>
+/// Resolves a version and writes version=X.Y.Z to $GITHUB_OUTPUT under Actions.
+/// --bump=patch rewrites the version file; --next=true --suffix=ci.42 leaves it unchanged.
+/// </summary>
+[TaskName("Version")]
+public sealed class VersionTask : FrostingTask<BuildContext>
+{
+    public override void Run(BuildContext context)
+    {
+        var bump = context.Argument("bump", "none");
+        var suffix = context.Argument("suffix", string.Empty);
+        var version = bump != "none"
+            ? context.BumpVersion(bump)
+            : context.Argument("next", false) ? context.NextPatch() : context.ReadVersion();
+        if (suffix.Length > 0)
+            version = $"{version}-{suffix}";
+
+        context.Log.Write(Verbosity.Normal, LogLevel.Information, "Version: {0}", version);
+        var output = context.Environment.GetEnvironmentVariable("GITHUB_OUTPUT");
+        if (!string.IsNullOrEmpty(output))
+            System.IO.File.AppendAllText(output, $"version={version}\n");
     }
 }
 
@@ -153,8 +185,7 @@ public sealed class BuildTask : FrostingTask<BuildContext>
         context.DotNetBuild(context.Solution, new DotNetBuildSettings
         {
             Configuration = context.Configuration,
-            NoRestore = true,
-            MSBuildSettings = context.VersionProperties()
+            NoRestore = true
         });
     }
 }
@@ -169,8 +200,7 @@ public sealed class TestTask : FrostingTask<BuildContext>
         {
             Configuration = context.Configuration,
             NoBuild = true,
-            NoRestore = true,
-            MSBuildSettings = context.VersionProperties()
+            NoRestore = true
         });
     }
 }
@@ -183,7 +213,7 @@ public sealed class PackTask : FrostingTask<BuildContext>
     {
         foreach (var project in context.SourceProjects)
         {
-            var version = context.GetProjectVersion(project);
+            var version = context.GetPackVersion();
             context.Log.Write(Verbosity.Normal, LogLevel.Information,
                 "Packing {0} with version {1}", project, version);
             context.DotNetPack(project, new DotNetPackSettings
@@ -192,10 +222,11 @@ public sealed class PackTask : FrostingTask<BuildContext>
                 NoBuild = true,
                 NoRestore = true,
                 OutputDirectory = context.Artifacts.FullPath,
-                // Deliberately NOT Version/PackageVersion: those are global properties and would follow
-                // the project reference into Pondhawk.Logging, stamping this package's version as the
-                // dependency's. The projects derive their own versions from version.json instead.
-                MSBuildSettings = context.VersionProperties()
+                // Global properties, so they follow project references. That is correct here: every
+                // package in this repository has one version.
+                MSBuildSettings = new DotNetMSBuildSettings()
+                    .WithProperty("PackageVersion", version)
+                    .WithProperty("Version", version)
             });
         }
 
@@ -212,7 +243,7 @@ public sealed class PackTask : FrostingTask<BuildContext>
     {
         var ours = context.SourceProjects.ToDictionary(
             project => System.IO.Path.GetFileNameWithoutExtension(project),
-            context.GetProjectVersion,
+            _ => context.GetPackVersion(),
             StringComparer.Ordinal);
 
         foreach (var (id, version) in ours)
@@ -237,8 +268,7 @@ public sealed class PackTask : FrostingTask<BuildContext>
                 {
                     throw new System.InvalidOperationException(
                         $"{id} {version} declares a dependency on {dependencyId} {declared}, but {dependencyId} " +
-                        $"is packed as {expected}. A version has leaked into the project reference as a global " +
-                        "MSBuild property — see src/Directory.Build.props.");
+                        $"is packed as {expected}. Check the version properties in the Pack task.");
                 }
             }
         }
@@ -274,7 +304,7 @@ public sealed class PushTask : FrostingTask<BuildContext>
             {
                 Source = context.NuGetSource,
                 ApiKey = context.NuGetApiKey,
-                SkipDuplicate = true
+                SkipDuplicate = context.SkipDuplicate
             });
         }
     }

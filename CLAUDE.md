@@ -30,7 +30,7 @@ CLOUDWATCH_LIVE_PROFILE=<profile> dotnet test test/Pondhawk.Logging.CloudWatch.T
 JOURNALD_LIVE=1 dotnet test test/Pondhawk.Logging.Journald.Tests --filter Category=Journald
 
 # Pack NuGet packages (writes to ./artifacts)
-dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
+dotnet run --project build/Build.csproj -- --target=Pack
 ```
 
 ## Project Setup
@@ -38,7 +38,7 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
 - **.NET 8** — every project targets `net8.0` (`LangVersion=latest`, `Nullable=enable`).
 - **Central package management** via `Directory.Packages.props`.
 - `TreatWarningsAsErrors` on; Meziantou analyzer enforced (`src/Directory.Build.props`).
-- Versioning: each project's `version.json` holds `major.minor`; the Cake `Pack` target appends the build number (and a `-local`/`-<suffix>` prerelease tag off CI).
+- Versioning: `<VersionPrefix>` in `src/Directory.Build.props` holds the last released version, and `publish.yml` bumps it. Pushes to `main` publish `-ci.<n>` prereleases of the next patch; a local `Pack` gets `-local`.
 
 ## Architecture
 
@@ -136,4 +136,4 @@ Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/tools) m
 ## CI/CD
 
 - `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts. Between test and pack it runs the Journald live test against the runner's journald.
-- `.github/workflows/publish.yml` — `workflow_dispatch` that promotes a build's artifacts to **NuGet.org** (uses nuget.org Trusted Publishing; no secret).
+- `.github/workflows/publish.yml` — `workflow_dispatch` that bumps the version and releases to **NuGet.org** (uses nuget.org Trusted Publishing; no secret).

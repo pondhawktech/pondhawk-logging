@@ -1,61 +1,162 @@
 name: Publish to NuGet.org
 
+# Run by hand. Bumps the version, builds, tests, and packs once, and pushes those packages.
+# The version file is committed only after the push, so a failed run leaves no false release.
+#
+# A push to nuget.org is PERMANENT: a version can be unlisted but never replaced or deleted.
+#
+# Uses nuget.org Trusted Publishing, so it needs no secret. The policy names this file by name.
+
 on:
   workflow_dispatch:
     inputs:
-      run_id:
-        description: 'Build workflow run ID to promote (leave blank for latest successful build on main)'
+      bump:
+        description: 'Version to publish: bump the file first, or none to publish it as-is'
+        type: choice
+        required: true
+        default: patch
+        options:
+          - none
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Build, test, and pack, then publish nothing'
+        type: boolean
         required: false
-        type: string
+        default: false
 
 permissions:
-  contents: read
-  actions: read
-  id-token: write
+  contents: write   # commit the bump, create the tag and the GitHub release
+  packages: write   # mirror the release to GitHub Packages
+  id-token: write   # get the OIDC token that NuGet/login exchanges for a temporary key
+
+concurrency:
+  group: release
+  cancel-in-progress: false   # never interrupt a run that may already have pushed
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Resolve build run ID
-        id: resolve
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -n "${{ inputs.run_id }}" ]; then
-            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
-          else
-            RUN_ID=$(gh api repos/${{ github.repository }}/actions/workflows/build.yml/runs \
-              --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | .[0].id')
-            echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          fi
+    # Add a required reviewer to this environment in the repository settings to make
+    # every nuget.org push need approval.
+    environment: nuget.org
 
-      - name: Download packages from build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: nuget-packages
-          path: packages
-          run-id: ${{ steps.resolve.outputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Guard - releases come from main
+        if: github.ref != 'refs/heads/main' && !inputs.dry_run
+        run: |
+          echo "::error::Release must run on main; this run targeted ${GITHUB_REF}."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
+      - name: Resolve version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: dotnet run --project build/Build.csproj -- --target=Version --bump="$BUMP"
+
+      # Asks the remote: a default checkout has no tags, so a local lookup would always pass.
+      - name: Refuse a version that was already released
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null; then
+            echo "::error::Tag v${VERSION} already exists. Choose a bump rather than 'none'."
+            exit 1
+          fi
+          {
+            echo "### Releasing \`${VERSION}\`"
+            echo ""
+            echo "- Bump: \`${BUMP}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Dry run: \`${DRY_RUN}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and Test
+        run: dotnet run --project build/Build.csproj -- --target=Test
+
+      # The Journald sink against the runner's journald, read back with journalctl. The runner user cannot read
+      # the system journal, hence sudo.
+      - name: Journald live test
+        run: dotnet test test/Pondhawk.Logging.Journald.Tests --configuration Release --no-build --filter Category=Journald
+        env:
+          JOURNALD_LIVE: '1'
+          JOURNALD_LIVE_JOURNALCTL: sudo journalctl
+
+      - name: Pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet run --project build/Build.csproj -- --target=Pack --exclusive --package-version="$VERSION"
+          expected="artifacts/Pondhawk.Logging.${VERSION}.nupkg"
+          [ -f "$expected" ] || { echo "::error::Expected $expected; artifacts holds: $(ls artifacts/)"; exit 1; }
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: nupkg-${{ steps.version.outputs.version }}
+          path: artifacts/*.nupkg
+
       - name: NuGet login (OIDC to a temporary API key)
+        if: '!inputs.dry_run'
         id: login
         uses: NuGet/login@v1
         with:
           user: kampilan
 
-      - name: Push to NuGet.org
+      # No skip-duplicate here: on a permanent feed, a duplicate is an error.
+      - name: Publish to nuget.org
+        if: '!inputs.dry_run'
+        env:
+          NUGET_SOURCE: https://api.nuget.org/v3/index.json
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet run --project build/Build.csproj -- --target=Push --exclusive --skip-duplicate=false
+
+      - name: Mirror to GitHub Packages
+        if: '!inputs.dry_run'
+        env:
+          NUGET_SOURCE: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet run --project build/Build.csproj -- --target=Push --exclusive
+
+      - name: Commit the version bump
+        if: '!inputs.dry_run'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for package in packages/*.nupkg; do
-            echo "Pushing $package"
-            dotnet nuget push "$package" \
-              --source https://api.nuget.org/v3/index.json \
-              --api-key ${{ steps.login.outputs.NUGET_API_KEY }} \
-              --skip-duplicate
-          done
+          set -euo pipefail
+          if git diff --quiet -- src/Directory.Build.props; then
+            echo "src/Directory.Build.props already reads ${VERSION}; nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Directory.Build.props
+          git commit -m "Release ${VERSION} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Tag and create the GitHub release
+        if: '!inputs.dry_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" \
+            --target "$(git rev-parse HEAD)" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            artifacts/*.nupkg
