@@ -8,7 +8,6 @@ using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Pondhawk.Context;
 using ZLogger;
 
 namespace Pondhawk.Logging.CloudWatch;
@@ -221,7 +220,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
             if (log.LogInfo.LogLevel < CloudWatchLoggingBuilderExtensions.MinimumLevel)
                 return;
 
-            _channel.Writer.TryWrite(Capture(log));
+            _channel.Writer.TryWrite(CapturedEvent.From(log));
         }
         catch
         {
@@ -231,48 +230,6 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
         {
             log.Return();
         }
-    }
-
-    private static CapturedEvent Capture(IZLoggerEntry entry)
-    {
-        var info = entry.LogInfo;
-        var operation = Ambient<IOperationContext>.Current;
-
-        var logEvent = new CapturedEvent
-        {
-            Level = info.LogLevel,
-            Category = info.Category.Name,
-            Title = entry.ToString(),
-            CorrelationId = operation.CorrelationId,
-            Subject = operation.SubjectName,
-            Tenant = operation.Tenant,
-            Occurred = info.Timestamp.Utc.UtcDateTime,
-            Exception = info.Exception,
-        };
-
-        for (var i = 0; i < entry.ParameterCount; i++)
-        {
-            var key = entry.GetParameterKeyAsString(i);
-            var value = entry.GetParameterValue(i);
-
-            switch (key)
-            {
-                case LogStateContract.Nesting when value is int nesting:
-                    logEvent.Nesting = nesting;
-                    break;
-                case LogStateContract.PayloadType when value is int payloadType:
-                    logEvent.PayloadType = payloadType;
-                    break;
-                case LogStateContract.PayloadContent:
-                    logEvent.Payload = value as string ?? value?.ToString();
-                    break;
-                case LogStateContract.ErrorContext:
-                    logEvent.ErrorContext = value as string ?? value?.ToString();
-                    break;
-            }
-        }
-
-        return logEvent;
     }
 
     private async Task FlushLoopAsync()

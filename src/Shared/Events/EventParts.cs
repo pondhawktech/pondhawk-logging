@@ -44,8 +44,14 @@ internal sealed class EventParts
     public IReadOnlyList<ExceptionPart>? Exceptions { get; init; }
 
     /// <summary>
+    /// Something of the event was left out or shortened: a field over its cap, part of the exception chain,
+    /// or anything cut to fit the size limit. Always true when <see cref="Minimal"/> is.
+    /// </summary>
+    public bool Cut { get; init; }
+
+    /// <summary>
     /// The event could not be cut to fit and is only its level, category, title and outermost exception,
     /// each cut short.
     /// </summary>
-    public bool Truncated { get; init; }
+    public bool Minimal { get; init; }
 }

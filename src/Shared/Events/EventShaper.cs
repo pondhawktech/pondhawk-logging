@@ -29,7 +29,8 @@ namespace Pondhawk.Logging.Events;
 /// The fields nothing else bounds — the title, the category, the correlation id, each exception message, the
 /// length of the exception chain — are cut to fixed lengths. An event still too large loses its context
 /// first, then payload lines, then stack frames; one that cannot be cut to fit that way is shaped as its
-/// level, category and title alone, marked <see cref="EventParts.Truncated"/>.
+/// level, category and title alone, marked <see cref="EventParts.Minimal"/>. Any of these marks the parts
+/// <see cref="EventParts.Cut"/>.
 /// </para>
 /// <para>
 /// <see cref="Shape"/> never throws and always returns, as long as the writer and the size function do not
@@ -108,10 +109,11 @@ internal static class EventShaper
             }
         }
 
-        var chain = logEvent.Exception is null ? null : Chain(logEvent.Exception);
+        var (chain, chainCut) = logEvent.Exception is null ? (null, false) : Chain(logEvent.Exception);
+        var capped = chainCut || Capped(logEvent);
         var frames = int.MaxValue;
 
-        var written = write(Parts(logEvent, context, json, lines, chain, frames));
+        var written = write(Parts(logEvent, context, json, lines, chain, frames, capped));
         if (size(written) <= maxBytes)
             return written;
 
@@ -119,7 +121,7 @@ internal static class EventShaper
         if (logEvent.Exception is null && (json ?? context) is { } whole)
             lines = Lines(whole.GetRawText());
 
-        written = write(Parts(logEvent, context: null, json: null, lines, chain, frames));
+        written = write(Parts(logEvent, context: null, json: null, lines, chain, frames, cut: true));
 
         for (var pass = 0; pass < MaxCutPasses && size(written) > maxBytes; pass++)
         {
@@ -134,14 +136,14 @@ internal static class EventShaper
             else
                 break;
 
-            written = write(Parts(logEvent, context: null, json: null, lines, chain, frames));
+            written = write(Parts(logEvent, context: null, json: null, lines, chain, frames, cut: true));
         }
 
         return written;
     }
 
     private static EventParts Parts(
-        CapturedEvent logEvent, JsonElement? context, JsonElement? json, string[]? lines, List<ExceptionPart>? chain, int frames) =>
+        CapturedEvent logEvent, JsonElement? context, JsonElement? json, string[]? lines, List<ExceptionPart>? chain, int frames, bool cut) =>
         new()
         {
             Level = logEvent.Level,
@@ -157,6 +159,7 @@ internal static class EventShaper
             PayloadJson = chain is null ? json : null,
             PayloadLines = chain is null && json is null ? lines : null,
             Exceptions = chain?.Select(e => WithFrames(e, frames)).ToList(),
+            Cut = cut,
         };
 
     /// <summary>
@@ -172,7 +175,8 @@ internal static class EventShaper
             CorrelationId = Optional(logEvent.CorrelationId, MaxCorrelationIdChars),
             Subject = Optional(logEvent.Subject, MaxSubjectChars),
             Tenant = Optional(logEvent.Tenant, MaxSubjectChars),
-            Truncated = true,
+            Cut = true,
+            Minimal = true,
             Exceptions = logEvent.Exception is { } exception
                 ? [new ExceptionPart(exception.GetType().FullName, Cut(MessageOf(exception), MinimalChars), [])]
                 : null,
@@ -180,11 +184,12 @@ internal static class EventShaper
 
     /// <summary>
     /// The exception and its inner exceptions, outermost first, each with its whole stack trace, one frame
-    /// per entry.
+    /// per entry; and whether any of it was cut, a message or the chain itself.
     /// </summary>
-    private static List<ExceptionPart> Chain(Exception outermost)
+    private static (List<ExceptionPart> Chain, bool Cut) Chain(Exception outermost)
     {
         var chain = new List<ExceptionPart>();
+        var cut = false;
 
         // A chain that loops back on itself is stopped, and so is one longer than anything real.
         var seen = new HashSet<Exception>(ReferenceEqualityComparer.Instance);
@@ -193,6 +198,7 @@ internal static class EventShaper
             if (chain.Count == MaxExceptions)
             {
                 chain.Add(new ExceptionPart(Truncated, $"further inner exceptions cut after the first {MaxExceptions}", []));
+                cut = true;
                 break;
             }
 
@@ -201,11 +207,21 @@ internal static class EventShaper
                 ? []
                 : Lines(stackTrace).Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
 
-            chain.Add(new ExceptionPart(exception.GetType().FullName, Cut(MessageOf(exception), MaxExceptionMessageChars), stack));
+            var message = MessageOf(exception);
+            cut |= message.Length > MaxExceptionMessageChars;
+            chain.Add(new ExceptionPart(exception.GetType().FullName, Cut(message, MaxExceptionMessageChars), stack));
         }
 
-        return chain;
+        return (chain, cut);
     }
+
+    // Whether any of the fields with a fixed cap is over it.
+    private static bool Capped(CapturedEvent logEvent) =>
+        logEvent.Title.Length > MaxTitleChars
+        || logEvent.Category.Length > MaxCategoryChars
+        || Optional(logEvent.CorrelationId, int.MaxValue)?.Length > MaxCorrelationIdChars
+        || Optional(logEvent.Subject, int.MaxValue)?.Length > MaxSubjectChars
+        || Optional(logEvent.Tenant, int.MaxValue)?.Length > MaxSubjectChars;
 
     // The stack trace cut to its first frames, lowered only when the event would not otherwise fit.
     private static ExceptionPart WithFrames(ExceptionPart exception, int frames) =>

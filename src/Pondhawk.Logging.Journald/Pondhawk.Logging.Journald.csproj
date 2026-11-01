@@ -13,6 +13,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/pondhawktech/pondhawk-logging</RepositoryUrl>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <!-- The memfd path (NativeMethods): LibraryImport and the sendmsg structures. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
@@ -23,6 +25,11 @@
   <!-- The event shaping shared by source with Pondhawk.Logging.CloudWatch, so both show the same content. -->
   <ItemGroup>
     <Compile Include="..\Shared\Events\*.cs" LinkBase="Shared\Events" />
+  </ItemGroup>
+
+  <!-- The journald line shared by source with Pondhawk.Logging.Console: what this writes when there is no journal. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Lines\*.cs" LinkBase="Shared\Lines" />
   </ItemGroup>
 
   <ItemGroup>

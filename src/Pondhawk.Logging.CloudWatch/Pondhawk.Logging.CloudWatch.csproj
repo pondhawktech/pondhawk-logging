@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pondhawk.Logging.CloudWatch.Tests" />
+    <!-- Its tests check that the journal's fields carry what this provider's JSON does. -->
+    <InternalsVisibleTo Include="Pondhawk.Logging.Journald.Tests" />
   </ItemGroup>
 
   <!-- The event shaping shared by source with Pondhawk.Logging.Journald, so both show the same content. -->

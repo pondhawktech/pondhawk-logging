@@ -50,7 +50,7 @@ internal static class CloudWatchEventFormatter
                 writer.WriteString("Tenant", parts.Tenant);
 
             writer.WriteString("Title", parts.Title);
-            if (parts.Truncated)
+            if (parts.Minimal)
                 writer.WriteBoolean("Truncated", value: true);
 
             // A delta, present only on the method-tracing events that carry one.

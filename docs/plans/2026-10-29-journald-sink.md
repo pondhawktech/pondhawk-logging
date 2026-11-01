@@ -89,7 +89,11 @@ two cannot drift.
 - The floor is a filter scoped to that provider, as `AddJournaldConsole` does. A provider-scoped rule always
   outranks provider-less rules in MEL's rule selection, so Watch's switch filter neither raises nor lowers the
   journal, and the journal's floor never holds a switch down.
-- `Post` also refuses anything below the floor, as CloudWatch does, so a stray rule cannot open Debug.
+- **As built:** the floor rule is inserted *first* in `LoggerFilterOptions.Rules`. MEL takes the last of equally
+  specific rules, so `Logging:Journald:LogLevel:Default` overrides the floor, and a category under the alias can
+  lower that category below it.
+- **Dropped:** "`Post` refuses anything below the floor". It would stop a category under the alias going below
+  the floor; the rules alone gate levels.
 
 **Decided (A) — the gateway's `LoggerFilterOptions` floors.** The same MEL rule cuts the other way: once a
 provider-scoped rule exists, provider-less category rules (`options.AddFilter("Some.Category", Warning)`) **do not
@@ -97,7 +101,8 @@ apply to this provider**. Two ways to meet the issue:
 
 - **A (chosen):** the provider also applies provider-less, category-specific rules (not `Default`, not
   filter delegates — so Watch's switch filter and `SetMinimumLevel` are excluded) as an extra floor: the event
-  must pass both. Read from `IOptionsMonitor<LoggerFilterOptions>`, so reloads apply. Floors that keep
+  must pass both — so a category under the alias cannot go below a provider-less floor for it either.
+  Read from `IOptionsMonitor<LoggerFilterOptions>`, so reloads apply. Floors that keep
   credentials out of the journal then work without the gateway naming the provider. Cost: not standard MEL
   semantics; documented in the README.
 - **B:** standard MEL only. The gateway scopes its floors to the provider (`AddFilter<JournaldLoggerProvider>(…)`
