@@ -67,7 +67,7 @@ $ journalctl -t orders -o verbose
 **The same content as CloudWatch.** Both packages compile the same event shaping (`src/Shared/Events`), so
 the fields hold what CloudWatch's JSON object holds: `Level` from `PRIORITY`, `Context` from `CONTEXT_JSON`,
 `Exceptions` from `EXCEPTIONS_JSON`, `Payload` from `PAYLOAD_JSON`, or from `PAYLOAD` (a string for one line,
-an array for several). The caps match too: title 16,384 characters, exception messages 16,384, chain 32,
+an array for several), `Truncated` from `TRUNCATED`. The caps match too: title 16,384 characters, exception messages 16,384, chain 32,
 and the event 256 KiB, cut first in context, then payload lines, then stack frames. A test rebuilds the JSON
 from the fields and compares it with CloudWatch's.
 

@@ -86,7 +86,7 @@ Every event is kept under 256 KB, whatever it carries. The title (16,384 charact
 correlation id, each exception message (16,384 characters) and the exception chain (32) are cut to fixed
 lengths. An event still too large loses its context first, then payload lines, and stack frames only as a
 last resort — each cut is marked in the event. One that cannot be cut to fit that way is written as its
-level, category and title alone, with `"Truncated": true`.
+level, category and title alone. An event of which anything was cut, either way, has `"Truncated": true`.
 
 ### What reaches CloudWatch
 

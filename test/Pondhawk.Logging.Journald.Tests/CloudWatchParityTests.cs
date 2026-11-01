@@ -30,6 +30,11 @@ public class CloudWatchParityTests
         for (var i = 0; i < 40; i++)
             longChain = new DeepException(3, $"m{i}", longChain);
 
+        // Messages at their cap and escaped six-fold: over the limit with every stack frame gone.
+        Exception hugeChain = null;
+        for (var i = 0; i < 40; i++)
+            hugeChain = new InvalidOperationException(new string('<', 20_000), hugeChain);
+
         var data = new TheoryData<string, TestEvent>
         {
             { "plain", new TestEvent { Level = LogLevel.Information } },
@@ -48,6 +53,8 @@ public class CloudWatchParityTests
             { "exception with payload", new TestEvent { PayloadType = 1, Payload = "{\"a\":1}", Exception = new InvalidOperationException("with payload") } },
             { "chain over the cap", new TestEvent { Exception = longChain } },
             { "multi-line title", new TestEvent { Title = "first\nsecond" } },
+            { "title over the cap", new TestEvent { Title = new string('t', 20_000) } },
+            { "too large to cut to fit", new TestEvent { Exception = hugeChain } },
         };
         return data;
     }
@@ -65,8 +72,8 @@ public class CloudWatchParityTests
 
     /// <summary>
     /// The fields as <c>pondhawk-logship</c> turns them back into an event: <c>_JSON</c> fields parsed as nested
-    /// JSON, <c>PAYLOAD</c> a string if it is one line and an array of lines otherwise, and <c>TRUNCATED</c> left
-    /// out, since CloudWatch marks only the minimal event.
+    /// JSON, <c>PAYLOAD</c> a string if it is one line and an array of lines otherwise, and <c>TRUNCATED</c> as
+    /// <c>Truncated: true</c>.
     /// </summary>
     private static JsonObject Logship(Dictionary<string, string> fields)
     {
@@ -90,6 +97,8 @@ public class CloudWatchParityTests
         if (fields.TryGetValue("TENANT", out var tenant))
             json["Tenant"] = tenant;
         json["Title"] = fields["TITLE"];
+        if (fields.ContainsKey("TRUNCATED"))
+            json["Truncated"] = true;
         if (fields.TryGetValue("NESTING", out var nesting))
             json["Nesting"] = int.Parse(nesting, System.Globalization.CultureInfo.InvariantCulture);
         if (fields.TryGetValue("CONTEXT_JSON", out var context))
