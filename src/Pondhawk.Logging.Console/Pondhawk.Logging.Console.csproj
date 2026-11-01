@@ -16,6 +16,11 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
+  <!-- The journald line shared by source with Pondhawk.Logging.Journald, which falls back to it. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Lines\*.cs" LinkBase="Shared\Lines" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="..\..\pht-small-logo.png" Pack="true" PackagePath="\" />
     <None Include="README.md" Pack="true" PackagePath="\" />

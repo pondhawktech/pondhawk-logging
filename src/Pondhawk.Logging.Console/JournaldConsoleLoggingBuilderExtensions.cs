@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using Pondhawk.Logging.Lines;
 using ZLogger;
 using ZLogger.Formatters;
 using ZLogger.Providers;
@@ -51,52 +52,18 @@ public static class JournaldConsoleLoggingBuilderExtensions
         formatter.SetPrefixFormatter(
             $"<{0}>{1}: ",
             static (in MessageTemplate template, in LogInfo info) =>
-                template.Format(Priority(info.LogLevel), info.Category.Name));
+                template.Format(JournaldLine.Priority(info.LogLevel), info.Category.Name));
 
         // Render exceptions inline on the same (priority-prefixed) line so each event is a single journald
         // entry, rather than continuation lines that would lose the priority.
         formatter.SetExceptionFormatter(WriteExceptionInline);
     }
 
-    // Microsoft.Extensions.Logging.LogLevel -> syslog priority (used by the sd-daemon <N> prefix).
-    private static int Priority(LogLevel level) => level switch
-    {
-        LogLevel.Critical => 2,     // crit
-        LogLevel.Error => 3,        // err
-        LogLevel.Warning => 4,      // warning
-        LogLevel.Information => 6,  // info
-        LogLevel.Debug => 7,        // debug
-        LogLevel.Trace => 7,        // debug
-        _ => 6,
-    };
-
     private static void WriteExceptionInline(IBufferWriter<byte> writer, Exception exception)
     {
         WriteUtf8(writer, " | ");
-        WriteException(writer, exception);
+        WriteUtf8(writer, JournaldLine.Exception(exception));
     }
-
-    private static void WriteException(IBufferWriter<byte> writer, Exception exception)
-    {
-        WriteUtf8(writer, exception.GetType().FullName ?? exception.GetType().Name);
-        WriteUtf8(writer, ": ");
-        WriteUtf8(writer, exception.Message);
-
-        if (exception.InnerException is { } inner)
-        {
-            WriteUtf8(writer, " ---> ");
-            WriteException(writer, inner);
-        }
-
-        if (exception.StackTrace is { } stackTrace)
-        {
-            WriteUtf8(writer, " | ");
-            WriteUtf8(writer, CollapseNewlines(stackTrace));
-        }
-    }
-
-    private static string CollapseNewlines(string value) =>
-        value.Replace("\r", string.Empty, StringComparison.Ordinal).Replace('\n', ' ');
 
     private static void WriteUtf8(IBufferWriter<byte> writer, string value)
     {

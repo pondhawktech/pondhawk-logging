@@ -26,6 +26,14 @@ jobs:
       - name: Build and Test
         run: dotnet run --project build/Build.csproj -- --target=Test --build-number=${{ github.run_number }}
 
+      # The Journald sink against the runner's journald, read back with journalctl. The runner user cannot read
+      # the system journal, hence sudo.
+      - name: Journald live test
+        run: dotnet test test/Pondhawk.Logging.Journald.Tests --configuration Release --no-build --filter Category=Journald
+        env:
+          JOURNALD_LIVE: '1'
+          JOURNALD_LIVE_JOURNALCTL: sudo journalctl
+
       - name: Pack
         if: github.ref == 'refs/heads/main'
         run: dotnet run --project build/Build.csproj -- --target=Pack --exclusive --build-number=${{ github.run_number }}

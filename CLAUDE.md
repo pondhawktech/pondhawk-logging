@@ -15,6 +15,7 @@ dotnet build pondhawk-logging.slnx
 dotnet build src/Pondhawk.Logging/Pondhawk.Logging.csproj
 dotnet build src/Pondhawk.Logging.Watch/Pondhawk.Logging.Watch.csproj
 dotnet build src/Pondhawk.Logging.CloudWatch/Pondhawk.Logging.CloudWatch.csproj
+dotnet build src/Pondhawk.Logging.Journald/Pondhawk.Logging.Journald.csproj
 dotnet build src/Pondhawk.Logging.AspNetCore/Pondhawk.Logging.AspNetCore.csproj
 
 # Run tests directly
@@ -23,6 +24,10 @@ dotnet test pondhawk-logging.slnx
 # Run the CloudWatch provider against the real service (skipped unless a local AWS profile is named;
 # creates and deletes throwaway log groups under /pondhawk-logging/test-*)
 CLOUDWATCH_LIVE_PROFILE=<profile> dotnet test test/Pondhawk.Logging.CloudWatch.Tests --filter Category=Aws
+
+# Run the Journald sink against the real journald, read back with journalctl (skipped unless JOURNALD_LIVE is set;
+# JOURNALD_LIVE_JOURNALCTL names the reader, e.g. "sudo journalctl" where the user cannot read the system journal)
+JOURNALD_LIVE=1 dotnet test test/Pondhawk.Logging.Journald.Tests --filter Category=Journald
 
 # Pack NuGet packages (writes to ./artifacts)
 dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
@@ -37,7 +42,9 @@ dotnet run --project build/Build.csproj -- --target=Pack --build-number=<n>
 
 ## Architecture
 
-Five packages: the logging API, a Watch Server provider, a journald-optimized console, a CloudWatch Logs provider, and ASP.NET Core request diagnostics. **No package references the API**: an application references Pondhawk.Logging from NuGet (the usual way), may instead vendor its source, and must be able to drop it without breaking — and a provider that referenced it would break the last two. The API and the providers agree only on names and values — the `Pondhawk.*` log-state property names and payload type numbers, the diagnostic probe's `Activity` property, and the probe key's service key — and each package keeps an internal copy (`LogStateContract`, `ProbeContract`) that its test project checks against the API. The Cake build's `CheckReferences` task and a test per package (`ContractTests`) keep a reference from coming back. The only Pondhawk package any depends on is Pondhawk.Context, whose `IOperationContext` holds the unit of work's correlation id, subject and tenant. `Pondhawk.Logging.AspNetCore` is the one package that needs the ASP.NET Core shared framework.
+Six packages: the logging API, a Watch Server provider, a journald-optimized console, a native journald sink, a CloudWatch Logs provider, and ASP.NET Core request diagnostics. **No package references the API**: an application references Pondhawk.Logging from NuGet (the usual way), may instead vendor its source, and must be able to drop it without breaking — and a provider that referenced it would break the last two. The API and the providers agree only on names and values — the `Pondhawk.*` log-state property names and payload type numbers, the diagnostic probe's `Activity` property, and the probe key's service key — and each package keeps an internal copy (`LogStateContract`, `ProbeContract`) that its test project checks against the API. The Cake build's `CheckReferences` task and a test per package (`ContractTests`) keep a reference from coming back. The only Pondhawk package any depends on is Pondhawk.Context, whose `IOperationContext` holds the unit of work's correlation id, subject and tenant. `Pondhawk.Logging.AspNetCore` is the one package that needs the ASP.NET Core shared framework.
+
+Code two packages must agree on is shared by source, not by package: `src/Shared/Events` (event shaping, CloudWatch and Journald) and `src/Shared/Lines` (`JournaldLine`: the priority mapping and the inline exception, Console and Journald), each compiled in as `internal` with `<Compile Include="..\Shared\…\*.cs" />`.
 
 ### Pondhawk.Logging — Structured Logging API
 
@@ -67,7 +74,19 @@ A ZLogger-based `Microsoft.Extensions.Logging` provider with Channel-based batch
 
 ### Pondhawk.Logging.Console — journald-optimized console
 
-A ZLogger-based console for Linux production services. `AddJournaldConsole(this ILoggingBuilder)` wires a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>`, mapped from `LogLevel`) and the category, with no timestamp and no ANSI color — so journald parses the priority and stamps the time itself. Exceptions render inline (a single journald entry). At Warning by default via a provider-scoped filter; `AddJournaldConsole(LogLevel minimum)` sets its own floor (Information for a service whose journal records routine work, or a CLI whose output is a CI log). Depends only on ZLogger; does not reference `Pondhawk.Logging`.
+A ZLogger-based console for Linux production services. `AddJournaldConsole(this ILoggingBuilder)` wires a ZLogger console whose plain-text formatter prefixes each line with the sd-daemon priority (`<N>`, mapped from `LogLevel`) and the category, with no timestamp and no ANSI color — so journald parses the priority and stamps the time itself. Exceptions render inline (a single journald entry). At Warning by default via a provider-scoped filter; `AddJournaldConsole(LogLevel minimum)` sets its own floor (Information for a service whose journal records routine work, or a CLI whose output is a CI log). Depends only on ZLogger; does not reference `Pondhawk.Logging`. The priority mapping and the inline exception are `JournaldLine` in `src/Shared/Lines`, shared by source with the Journald sink's console line.
+
+### Pondhawk.Logging.Journald — native journald sink
+
+A ZLogger-based provider that writes each event to the journal over its native protocol, its parts as journal fields, so `pondhawk-logship` can route by `CATEGORY` and rebuild CloudWatch's JSON object. Linux 64-bit for the journal path; P/Invoke to libc (`AllowUnsafeBlocks`).
+
+- **JournaldLoggingBuilderExtensions**: **`AddJournald(this ILoggingBuilder, floor = Information, configure?)`**; `JournaldOptions.SyslogIdentifier` (default the executable's name). An internal overload takes the journal (`Func<JournalSocket?>`) and stdout, for tests. The floor rule is scoped to the provider and inserted *first* in `LoggerFilterOptions.Rules`, so `Logging:Journald:LogLevel` (`Default` or a category) overrides it.
+- **JournaldLoggerProvider**: its own provider type, `[ProviderAlias("Journald")]`, re-implementing `ILoggerProvider` (as CloudWatch's does) to wrap each logger in `CategoryFloorLogger`. **CategoryFloors** applies the host's provider-less, category-specific rules (not `Default`, not delegates — so not Watch's switch filter or `SetMinimumLevel`) as an extra floor, most specific wins, reloaded through `IOptionsMonitor<LoggerFilterOptions>` into one immutable snapshot. Not standard MEL, on purpose: a floor written the usual way would otherwise not reach a provider with a scoped rule.
+- **JournaldLoggerProcessor**: synchronous — `Post` captures (`CapturedEvent.From`, shared), formats and sends on the calling thread; nothing is queued, dispose has nothing to flush. No journal, or a send journald refuses: the event's `ConsoleLine` (the line `AddJournaldConsole` writes) to stdout. Never throws.
+- **JournalEventWriter**: writes `EventShaper`'s parts as native-protocol fields — `MESSAGE`, `PRIORITY`, `SYSLOG_IDENTIFIER`, `CATEGORY`, `TITLE`, `CORRELATION_ID`, `SUBJECT`, `TENANT`, `NESTING`, `CONTEXT_JSON`, then one of `EXCEPTIONS_JSON` / `PAYLOAD_JSON` / `PAYLOAD`, and `TRUNCATED=1` when `EventParts.Cut`. `NAME=value\n`, or the binary-safe form for a value with a newline. 256 KiB, as CloudWatch.
+- **JournalSocket**: a non-blocking `SOCK_DGRAM` to `/run/systemd/journal/socket`; on `EMSGSIZE`/`ENOBUFS` it sends a sealed `memfd` in `SCM_RIGHTS` (`NativeMethods`), as `sd_journal_send` does.
+- **JournalDetection**: decided once at start — the journal only when its socket exists and `JOURNAL_STREAM` (`dev:ino`) matches `fstat` of fd 1 or fd 2; otherwise the console.
+- Tests: a fake journal socket (`Support/FakeJournal`, fd passing read back), `CloudWatchParityTests` (the fields turned back into JSON equal CloudWatch's; the test project references CloudWatch under the extern alias `CloudWatch`, since both compile the shared `internal` types), and `JournaldLiveTests` (`Category=Journald`, run in `build.yml` with `sudo journalctl`).
 
 ### Pondhawk.Logging.CloudWatch — CloudWatch Logs provider
 
@@ -76,7 +95,7 @@ A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one 
 - **CloudWatchLoggingBuilderExtensions**: **`AddCloudWatch(this ILoggingBuilder, logGroup, service, configure?)`** is the entry point (an overload takes a `CloudWatchDestination`). It registers `CloudWatchLoggerProvider` and a filter scoped to it, fixed at Information: Information, Warning, Error and Critical always go, Debug and Trace never do, with no setting and no switch. Nothing here touches the network. **`CloudWatchOptions.OnlyCategories`/`ExceptCategories`** route by category (`CategoryRoute`: a dotted prefix, ignoring case, as a filter rule's category matches), so one process can register CloudWatch once per group; not both on one registration. Only the first registration's destination is registered in DI.
 - **CloudWatchLoggerProvider**: a subclass of ZLogger's `ZLoggerLogProcessorLoggerProvider` that exists so the level floor has its own provider type — every ZLogger processor otherwise shares one, and a floor scoped to that would clamp Watch too. A provider-scoped rule also outranks Watch's global switch filter, so the switch table does not gate CloudWatch. It re-implements `ILoggerProvider` (ZLogger's `CreateLogger` is not virtual) so a category its route excludes gets `NullLogger` — never enabled, never formatted.
 - **CloudWatchLoggerProcessor**: a ZLogger `IAsyncLogProcessor` with unbounded Channel batching. `Post()` copies the pooled entry out on the calling thread (correlation, subject name and tenant from the ambient `IOperationContext`); formatting and sending happen on the flush thread. On the first batch it builds the AWS client, resolves the stream (`CloudWatchOptions.StreamName`, else `<instance-id>/<service>` from EC2 metadata) and creates the stream — and a missing group, with retention only if it created it. A verdict on the configuration turns it off, noted once on stdout: for the process (no client; no instance id after `MaxInstanceIdAttempts`) or for the group until a rebind (access denied on the stream or on a put). A request CloudWatch refuses as invalid is dropped, never re-held. Anything else pauses it for `PauseAfterFailure` (one minute; one 5-second attempt per call, no SDK retries). While paused or unbound the most recent `MaxHeldEvents` Warning-and-above events are held; they go out with the next batch, or on their own once the pause is over (the loop wakes for them), and get one last attempt on dispose. Everything that runs on the flush thread must neither throw nor loop: options are clamped at construction, `Post` refuses anything below Information itself, and only events worth holding are formatted during a pause. Batches are sorted by time and split at PutLogEvents' limits (1,048,576 bytes counting 26 per event; 10,000 events; a 24-hour span).
-- **CloudWatchEventFormatter**: the event's JSON, shaped by what the event carries, never by guessing at text — an exception gives `Exceptions` (the whole chain, one frame per array entry); `Pondhawk.ErrorContext` gives `Context`, with or without an exception; a Json payload is nested JSON under `Payload`; anything else is text or an array of lines. `Context` is always an object (`{ "Value": … }` otherwise). Title, category, correlation id, exception messages and chain length are capped; an event still over 256 KB loses context, then payload lines, then stack frames, and failing that is written minimal with `Truncated: true`. `Format` never throws and its cut loop is bounded — it runs on the one flush thread.
+- **CloudWatchEventFormatter**: writes the parts `EventShaper` makes as one JSON object. `EventShaper`, `EventParts`, `CapturedEvent` and `LogStateContract` live in `src/Shared/Events` (namespace `Pondhawk.Logging.Events`), compiled into the package by source so the Journald sink can show the same content without the AWS SDK. The event is shaped by what it carries, never by guessing at text — an exception gives `Exceptions` (the whole chain, one frame per array entry); `Pondhawk.ErrorContext` gives `Context`, with or without an exception; a Json payload is nested JSON under `Payload`; anything else is text or an array of lines. `Context` is always an object (`{ "Value": … }` otherwise). Title, category, correlation id, exception messages and chain length are capped; an event still over 256 KB loses context, then payload lines, then stack frames, and failing that is written minimal with `Truncated: true`. `Format` never throws and its cut loop is bounded — it runs on the one flush thread.
 - **CloudWatchDestination**: the log group, as one immutable snapshot re-read per batch. **`Rebind(logGroup)`** moves the process to another group without tearing anything down; **`Unbound()`** starts with no group named. `Sanitize` makes a valid group name from arbitrary text.
 
 ### Pondhawk.Logging.Migration — Fabrica.Watch migration analyzer (development-only)
@@ -108,7 +127,7 @@ Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhaw
 
 ## Conventions
 
-- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`, `Pondhawk.Logging.Console`, `Pondhawk.Logging.CloudWatch`, `Pondhawk.Logging.AspNetCore`.
+- Namespaces match folder structure: `Pondhawk.Logging`, `Pondhawk.Logging.Watch`, `Pondhawk.Logging.Console`, `Pondhawk.Logging.Journald`, `Pondhawk.Logging.CloudWatch`, `Pondhawk.Logging.AspNetCore`. Shared source keeps its own: `Pondhawk.Logging.Events`, `Pondhawk.Logging.Lines`.
 
 ## History
 
@@ -116,5 +135,5 @@ Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/tools) m
 
 ## CI/CD
 
-- `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts.
+- `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts. Between test and pack it runs the Journald live test against the runner's journald.
 - `.github/workflows/publish.yml` — `workflow_dispatch` that promotes a build's artifacts to **NuGet.org** (requires the `NUGET_ORG_API_KEY` secret; org-level).

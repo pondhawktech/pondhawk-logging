@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Title>Pondhawk Logging — native journald sink</Title>
+    <Description>A ZLogger-based Microsoft.Extensions.Logging provider that writes each event to systemd-journald over its native protocol, with the event's parts — category, title, correlation id, context, payload, exception chain — as journal fields. Falls back to the console when there is no journal, and never blocks or stops the host.</Description>
+    <Authors>Pond Hawk Technologies Inc.</Authors>
+    <Company>Pond Hawk Technologies Inc.</Company>
+    <Copyright>Pond Hawk Technologies Inc. (c) 2026</Copyright>
+    <PackageIcon>pht-small-logo.png</PackageIcon>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/pondhawktech/pondhawk-logging</RepositoryUrl>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <!-- The memfd path (NativeMethods): LibraryImport and the sendmsg structures. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pondhawk.Logging.Journald.Tests" />
+  </ItemGroup>
+
+  <!-- The event shaping shared by source with Pondhawk.Logging.CloudWatch, so both show the same content. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Events\*.cs" LinkBase="Shared\Events" />
+  </ItemGroup>
+
+  <!-- The journald line shared by source with Pondhawk.Logging.Console: what this writes when there is no journal. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Lines\*.cs" LinkBase="Shared\Lines" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\pht-small-logo.png" Pack="true" PackagePath="\" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Pondhawk.Context" />
+    <PackageReference Include="ZLogger" />
+  </ItemGroup>
+
+</Project>
