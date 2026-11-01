@@ -250,6 +250,16 @@ public class CloudWatchEventFormatterTests
         var title = document.RootElement.GetProperty("Title").GetString();
         title.ShouldEndWith("...[truncated]");
         title.Length.ShouldBeLessThan(EventShaper.MaxTitleChars + 32);
+        document.RootElement.GetProperty("Truncated").GetBoolean().ShouldBeTrue("anything cut marks the event, not only the minimal one");
+    }
+
+    [Fact]
+    public void AnEventThatFits_IsNotMarkedTruncated()
+    {
+        var message = CloudWatchEventFormatter.Format(new CapturedEvent { Level = LogLevel.Error, Category = "My.Category", Title = "it broke" });
+
+        using var document = JsonDocument.Parse(message);
+        document.RootElement.TryGetProperty("Truncated", out _).ShouldBeFalse();
     }
 
     [Fact]

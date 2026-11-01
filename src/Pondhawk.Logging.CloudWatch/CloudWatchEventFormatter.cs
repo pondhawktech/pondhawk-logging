@@ -14,8 +14,8 @@ namespace Pondhawk.Logging.CloudWatch;
 /// <para>
 /// What the event holds, and how it is cut to fit, is <see cref="EventShaper"/>'s; this lays the parts out.
 /// A JSON payload is written under <c>Payload</c> as nested JSON, never as JSON inside a string; a text
-/// payload is a string, or an array of lines if it has several. <c>Truncated</c> is written only on an event
-/// that could not be cut to fit.
+/// payload is a string, or an array of lines if it has several. <c>Truncated</c> is written on an event of
+/// which anything was cut (<see cref="EventParts.Cut"/>), as the journal sink's <c>TRUNCATED</c> is.
 /// </para>
 /// <para>
 /// <see cref="Format"/> never throws and always returns: it runs on the provider's one flush thread, where
@@ -50,7 +50,7 @@ internal static class CloudWatchEventFormatter
                 writer.WriteString("Tenant", parts.Tenant);
 
             writer.WriteString("Title", parts.Title);
-            if (parts.Minimal)
+            if (parts.Cut)
                 writer.WriteBoolean("Truncated", value: true);
 
             // A delta, present only on the method-tracing events that carry one.
