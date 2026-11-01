@@ -131,7 +131,7 @@ Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhaw
 
 ## History
 
-Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/tools) monorepo, where these lived as `src/Pondhawk.Logging` and `src/Pondhawk.Logging.Watch`. `Pondhawk.Logging` was consumed there by `Pondhawk.Api` (which stays in `tools` and now references it as a NuGet package). `Pondhawk.Logging.Watch` is consumed by the [pondhawk/watch-server](https://github.com/pondhawk/watch-server) client.
+Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/pondhawk-utilities) monorepo (now `pondhawk-utilities`), where these lived as `src/Pondhawk.Logging` and `src/Pondhawk.Logging.Watch`. `Pondhawk.Logging` was consumed there by `Pondhawk.Api` (now retired; its last version is at the tag `api-final` in `pondhawk-utilities`). `Pondhawk.Logging.Watch` is consumed by the [pondhawktech/watch-server](https://github.com/pondhawktech/watch-server) client.
 
 ## CI/CD
 

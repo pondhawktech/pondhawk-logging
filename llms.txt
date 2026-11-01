@@ -106,4 +106,4 @@ Install: `<PackageReference Include="Pondhawk.Logging.Migration" PrivateAssets="
 - All five packages target `net8.0`; built on Microsoft.Extensions.Logging (the Watch, Console and CloudWatch providers use ZLogger; `Pondhawk.Logging.AspNetCore` references the ASP.NET Core shared framework)
 - XML documentation ships inside the NuGet packages (100% public-API coverage; consumers get IntelliSense)
 - `Pondhawk.Logging.Watch` is consumed by the pondhawk/watch-server client
-- MIT licensed; extracted from the pondhawktech/tools monorepo
+- MIT licensed; extracted from the pondhawktech/tools monorepo (now pondhawk-utilities)

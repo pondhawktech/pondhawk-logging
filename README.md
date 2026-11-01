@@ -195,7 +195,7 @@ dotnet run --project build/Build.csproj -- --target=Pack   # writes ./artifacts/
 
 ## History
 
-Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/tools) monorepo. `Pondhawk.Logging` was consumed there by `Pondhawk.Api` (which stays in `tools` and now references it as a NuGet package). `Pondhawk.Logging.Watch` is consumed by the [pondhawk/watch-server](https://github.com/pondhawk/watch-server) client.
+Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/pondhawk-utilities) monorepo (now `pondhawk-utilities`). `Pondhawk.Logging` was consumed there by `Pondhawk.Api` (now retired; its last version is at the tag `api-final` in `pondhawk-utilities`). `Pondhawk.Logging.Watch` is consumed by the [pondhawktech/watch-server](https://github.com/pondhawktech/watch-server) client.
 
 ## License
 
