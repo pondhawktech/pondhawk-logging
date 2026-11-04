@@ -27,6 +27,7 @@ Five packages, all `net8.0`. The only Pondhawk package any depends on is Pondhaw
 | [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), at Warning by default for Linux production services, or from a floor you choose. |
 | [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
 | [**Pondhawk.Logging.AspNetCore**](src/Pondhawk.Logging.AspNetCore/README.md) | ASP.NET Core request diagnostics for `Pondhawk.Logging` — correlation id, subject and tenant on every event of a request, a begin/end bracket with status and elapsed time, and an opt-in dump of the whole request. Needs the ASP.NET Core shared framework. |
+| **winston-pondhawk-watch** (npm) | Winston transport for Node.js — batches log events and sends them to Watch Server (`POST /api/sink`). Built and tested on CI; not published to npm. |
 
 Moving off **Fabrica.Watch**? [**Pondhawk.Logging.Migration**](src/Pondhawk.Logging.Migration/README.md) is a
 development-only Roslyn analyzer (`netstandard2.0`) whose code fixes rewrite Fabrica.Watch calls to
@@ -160,6 +161,7 @@ src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + swi
 src/Pondhawk.Logging.Console/  journald-optimized ZLogger console (net8.0)
 src/Pondhawk.Logging.CloudWatch/  CloudWatch Logs provider — ZLogger processor (net8.0)
 src/Pondhawk.Logging.AspNetCore/  ASP.NET Core request diagnostics — three middlewares (net8.0)
+src/winston-pondhawk-watch/    Winston transport for Watch Server (TypeScript, npm)
 test/Pondhawk.Logging.Tests/
 test/Pondhawk.Logging.Watch.Tests/
 test/Pondhawk.Logging.Console.Tests/
@@ -178,11 +180,14 @@ dotnet run --project build/Build.csproj -- --target=Test
 # Or use the SDK directly
 dotnet build pondhawk-logging.slnx
 dotnet test pondhawk-logging.slnx
+
+# Winston transport (needs Node.js)
+cd src/winston-pondhawk-watch && npm ci && npm run build && npm test
 ```
 
 ## Versioning & Packaging
 
-Every package in this repository has one version. `<VersionPrefix>` in `src/Directory.Build.props` holds the last released version. Pushes to `main` publish `-ci.<n>` prereleases of the next patch to GitHub Packages. Local builds get a `-local` suffix.
+Every NuGet package in this repository has one version. The Winston transport has its own, in `src/winston-pondhawk-watch/package.json`. `<VersionPrefix>` in `src/Directory.Build.props` holds the last released version. Pushes to `main` publish `-ci.<n>` prereleases of the next patch to GitHub Packages. Local builds get a `-local` suffix.
 
 ```bash
 dotnet run --project build/Build.csproj -- --target=Pack   # writes ./artifacts/*.nupkg
@@ -190,7 +195,7 @@ dotnet run --project build/Build.csproj -- --target=Pack   # writes ./artifacts/
 
 ## CI/CD
 
-- **`build.yml`** — on push/PR to `main`: build + test; on `main` it also packs and pushes the packages as `-ci.<n>` prereleases to the `pondhawktech` GitHub Packages feed and uploads the `.nupkg`s as an artifact.
+- **`build.yml`** — on push/PR to `main`: build + test; on `main` it also packs and pushes the packages as `-ci.<n>` prereleases to the `pondhawktech` GitHub Packages feed and uploads the `.nupkg`s as an artifact. A separate `winston` job builds and tests the Winston transport and audits its runtime dependencies.
 - **`publish.yml`** — a manual workflow on **NuGet.org** Trusted Publishing, with no secret. Choose `bump` (`none`, `patch`, `minor` or `major`). It bumps the version, then builds, tests, and packs. It pushes to nuget.org and GitHub Packages, commits the bump, and creates the tag and GitHub release. `dry_run` stops before it publishes, and can run on any branch. A push to nuget.org is permanent: a version can be unlisted but never replaced.
 
 ## History
