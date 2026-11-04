@@ -21,6 +21,11 @@
     "logging"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pondhawktech/pondhawk-logging.git",
+    "directory": "src/winston-pondhawk-watch"
+  },
   "dependencies": {
     "winston-transport": "^4.9.0"
   },
@@ -28,9 +33,9 @@
     "winston": "^3.0.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3",
+    "vitest": "^5.1.0",
     "winston": "^3.19.0"
   }
 }
