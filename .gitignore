@@ -8,3 +8,5 @@ riderModule.iml
 .claude/
 nul
 **/TestResults/
+# Winston transport (npm)
+node_modules/

@@ -31,6 +31,9 @@ JOURNALD_LIVE=1 dotnet test test/Pondhawk.Logging.Journald.Tests --filter Catego
 
 # Pack NuGet packages (writes to ./artifacts)
 dotnet run --project build/Build.csproj -- --target=Pack
+
+# Build and test the Winston transport (Node.js)
+cd src/winston-pondhawk-watch && npm ci && npm run build && npm test
 ```
 
 ## Project Setup
@@ -42,7 +45,7 @@ dotnet run --project build/Build.csproj -- --target=Pack
 
 ## Architecture
 
-Six packages: the logging API, a Watch Server provider, a journald-optimized console, a native journald sink, a CloudWatch Logs provider, and ASP.NET Core request diagnostics. **No package references the API**: an application references Pondhawk.Logging from NuGet (the usual way), may instead vendor its source, and must be able to drop it without breaking — and a provider that referenced it would break the last two. The API and the providers agree only on names and values — the `Pondhawk.*` log-state property names and payload type numbers, the diagnostic probe's `Activity` property, and the probe key's service key — and each package keeps an internal copy (`LogStateContract`, `ProbeContract`) that its test project checks against the API. The Cake build's `CheckReferences` task and a test per package (`ContractTests`) keep a reference from coming back. The only Pondhawk package any depends on is Pondhawk.Context, whose `IOperationContext` holds the unit of work's correlation id, subject and tenant. `Pondhawk.Logging.AspNetCore` is the one package that needs the ASP.NET Core shared framework.
+Six .NET packages (plus the Winston transport, below): the logging API, a Watch Server provider, a journald-optimized console, a native journald sink, a CloudWatch Logs provider, and ASP.NET Core request diagnostics. **No package references the API**: an application references Pondhawk.Logging from NuGet (the usual way), may instead vendor its source, and must be able to drop it without breaking — and a provider that referenced it would break the last two. The API and the providers agree only on names and values — the `Pondhawk.*` log-state property names and payload type numbers, the diagnostic probe's `Activity` property, and the probe key's service key — and each package keeps an internal copy (`LogStateContract`, `ProbeContract`) that its test project checks against the API. The Cake build's `CheckReferences` task and a test per package (`ContractTests`) keep a reference from coming back. The only Pondhawk package any depends on is Pondhawk.Context, whose `IOperationContext` holds the unit of work's correlation id, subject and tenant. `Pondhawk.Logging.AspNetCore` is the one package that needs the ASP.NET Core shared framework.
 
 Code two packages must agree on is shared by source, not by package: `src/Shared/Events` (event shaping, CloudWatch and Journald) and `src/Shared/Lines` (`JournaldLine`: the priority mapping and the inline exception, Console and Journald), each compiled in as `internal` with `<Compile Include="..\Shared\…\*.cs" />`.
 
@@ -123,6 +126,10 @@ Three middlewares that log through `ILogger` under the one category `Pondhawk.Di
 - `Skip` leaves a request out of the monitor and the dump, not out of correlation or enrichment.
 - **Diagnostic probe** (`RequestProbe`, `ProbeToken`): a token Watch Server signed (ECDSA P-256, per domain) in `X-Diagnostics-Probe` probes the request — `ProbeContract.Begin()` (the custom property `Pondhawk.DiagnosticProbe` on the request's `Activity`, as `Pondhawk.Logging`'s public `DiagnosticProbe.Begin()` sets it), which Watch's switch filter lets through at Trace and tags `Diagnostics`. Checked against the key from the keyed service `"Pondhawk.DiagnosticProbeKey"` (`ProbeContract.KeySource`; Watch registers it, the public key comes with the switches as `ProbeKey`; no service, or a container without keyed services, means no key and no probe): signature over the payload's base64url text, domain, version 1, expiry not past and at most 4 h ahead (a minute's skew). An unbound token probes from the monitor; a bound one from enrichment, for that `SubjectName` only. A refused token is ignored — the request goes on as if none was sent, `ProbeToken.Verify` never throws — and warned about once per token per process, Debug after.
 
+### winston-pondhawk-watch — Winston transport (Node.js)
+
+`src/winston-pondhawk-watch`: a TypeScript Winston transport that batches log events and sends them to Watch Server (`POST /api/sink`, switches from `GET /api/switches`, ingest key in the Watch URL). It is the Node.js counterpart of Pondhawk.Logging.Watch and must follow the same Watch wire format (level names, payload types); it shares no code with the .NET packages. Not in the solution or the Cake build; its version is its own (`package.json`), and it is not published to npm. `dist/` is committed. Moved from watch-server (`src/Pondhawk.Watch.Winston`) with its history.
+
 Per-project deep-dives live in `src/Pondhawk.Logging/CLAUDE.md` and `src/Pondhawk.Logging.Watch/CLAUDE.md`.
 
 ## Conventions
@@ -135,5 +142,5 @@ Extracted from the [pondhawktech/tools](https://github.com/pondhawktech/pondhawk
 
 ## CI/CD
 
-- `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts. Between test and pack it runs the Journald live test against the runner's journald.
+- `.github/workflows/build.yml` — builds, tests, packs, and pushes the packages to the `pondhawktech` GitHub Packages feed on pushes to `main`; uploads `.nupkg` artifacts. Its `winston` job builds and tests the Winston transport and runs `npm audit` on its runtime dependencies. Between test and pack it runs the Journald live test against the runner's journald.
 - `.github/workflows/publish.yml` — `workflow_dispatch` that bumps the version and releases to **NuGet.org** (uses nuget.org Trusted Publishing; no secret).

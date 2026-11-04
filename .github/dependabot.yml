@@ -1,0 +1,11 @@
+# Dependency updates for the Winston transport's npm packages, at most one grouped PR a week.
+# Security updates for a known vulnerability come as soon as one is published, not on the weekly schedule.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /src/winston-pondhawk-watch
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
