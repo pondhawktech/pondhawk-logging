@@ -23,7 +23,10 @@ public class WatchLoggerProcessorTests
     private static HttpClient CreateClient(MockHttpHandler handler)
         => new(handler) { BaseAddress = new Uri("http://localhost/") };
 
-    private static (ILoggerFactory Factory, List<LogEvent> Delivered) Build(MockHttpHandler handler, SwitchSource switches)
+    private static (ILoggerFactory Factory, List<LogEvent> Delivered) Build(
+        MockHttpHandler handler,
+        SwitchSource switches,
+        Func<string> defaultTag = null)
     {
         var delivered = new List<LogEvent>();
 
@@ -41,7 +44,13 @@ public class WatchLoggerProcessorTests
         });
 
         var processor = new WatchLoggerProcessor(
-            CreateClient(handler), switches, "TestDomain", batchSize: 1, flushInterval: TimeSpan.FromMilliseconds(20));
+            CreateClient(handler),
+            switches,
+            WatchDestination.Relative("TestDomain"),
+            batchSize: 1,
+            flushInterval: TimeSpan.FromMilliseconds(20),
+            ownsDependencies: false,
+            defaultTag);
 
         var factory = LoggerFactory.Create(b =>
         {
@@ -377,6 +386,130 @@ public class WatchLoggerProcessorTests
         var e = await WaitForFirst(delivered);
         e.ShouldNotBeNull();
         e.Tag.ShouldBe(DiagnosticProbe.Tag);
+    }
+
+    // ── Default tag (WatchOptions.DefaultTag) ──
+
+    private static async Task<List<LogEvent>> WaitForCount(List<LogEvent> delivered, int count)
+    {
+        await WaitUntil(() =>
+        {
+            lock (delivered)
+                return delivered.Count >= count;
+        });
+
+        lock (delivered)
+            return delivered.ToList();
+    }
+
+    [Fact]
+    public async Task DefaultTag_Applies_WhenTheSwitchHasNoTag()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource(), () => "i-0abc b42");
+
+        factory.CreateLogger("My.Service").LogWarning("warn");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Tag.ShouldBe("i-0abc b42");
+    }
+
+    [Fact]
+    public async Task DefaultTag_LosesTo_TheSwitchTag()
+    {
+        var handler = new MockHttpHandler();
+        var switches = new SwitchSource();
+        switches.WhenMatched("My", "MyTag", LogLevel.Trace, Color.Red);
+        var (factory, delivered) = Build(handler, switches, () => "i-0abc");
+
+        factory.CreateLogger("My.Service").LogWarning("warn");
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Tag.ShouldBe("MyTag");
+    }
+
+    [Fact]
+    public async Task DefaultTag_LosesTo_TheProbeTag()
+    {
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource(), () => "i-0abc");
+
+        using (new Activity("probed request").Start())
+        {
+            DiagnosticProbe.Begin();
+            factory.CreateLogger("My.Service").LogWarning("warn");
+        }
+
+        var e = await WaitForFirst(delivered);
+        e.ShouldNotBeNull();
+        e.Tag.ShouldBe(DiagnosticProbe.Tag);
+    }
+
+    [Fact]
+    public async Task DefaultTag_FunctionRunsOnce()
+    {
+        var calls = 0;
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource(), () =>
+        {
+            Interlocked.Increment(ref calls);
+            return "i-0abc";
+        });
+
+        var logger = factory.CreateLogger("My.Service");
+        for (var i = 0; i < 3; i++)
+        {
+            logger.LogWarning("warn {N}", i);
+            await WaitForCount(delivered, i + 1);
+        }
+
+        var events = await WaitForCount(delivered, 3);
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(e => e.Tag == "i-0abc");
+        Volatile.Read(ref calls).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DefaultTag_FunctionThatThrows_LeavesTheTagEmpty_AndTheEventIsDelivered()
+    {
+        var calls = 0;
+        var handler = new MockHttpHandler();
+        var (factory, delivered) = Build(handler, new SwitchSource(), () =>
+        {
+            Interlocked.Increment(ref calls);
+            throw new InvalidOperationException("no instance metadata");
+        });
+
+        var logger = factory.CreateLogger("My.Service");
+        logger.LogWarning("first");
+        await WaitForCount(delivered, 1);
+        logger.LogWarning("second");
+
+        var events = await WaitForCount(delivered, 2);
+        events.Count.ShouldBe(2);
+        events.ShouldAllBe(e => e.Tag == string.Empty);
+        Volatile.Read(ref calls).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DefaultTag_FunctionThatLogs_DoesNotBlock_AndItsEventIsDeliveredTagged()
+    {
+        var handler = new MockHttpHandler();
+        ILoggerFactory factory = null;
+        var (built, delivered) = Build(handler, new SwitchSource(), () =>
+        {
+            factory.CreateLogger("My.Setup").LogWarning("looking up the instance");
+            return "i-0abc";
+        });
+        factory = built;
+
+        factory.CreateLogger("My.Service").LogWarning("warn");
+
+        var events = await WaitForCount(delivered, 2);
+        events.Select(e => e.Title).ShouldBe(["warn", "looking up the instance"], ignoreOrder: true);
+        events.ShouldAllBe(e => e.Tag == "i-0abc");
     }
 
     [Fact]

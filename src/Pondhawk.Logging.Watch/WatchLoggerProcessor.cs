@@ -46,6 +46,11 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private readonly int _batchSize;
     private readonly TimeSpan _flushInterval;
 
+    // The application's default tag, read only by the flush loop (the channel's single reader), so it needs
+    // no lock. The function is called once, at the first batch, and dropped; null afterwards means "resolved".
+    private Func<string?>? _defaultTagFactory;
+    private string _defaultTag = string.Empty;
+
     private readonly Channel<LogEvent> _channel;
     private readonly Task _flushTask;
     private readonly TaskCompletionSource<bool> _flushCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -137,6 +142,22 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         int batchSize = 100,
         TimeSpan? flushInterval = null,
         bool ownsDependencies = false)
+        : this(client, switchSource, destination, batchSize, flushInterval, ownsDependencies, defaultTag: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a processor as the public constructor does, plus the <see cref="WatchOptions.DefaultTag"/>
+    /// function <c>AddWatch</c> passes. Internal so the default tag adds nothing to the public surface.
+    /// </summary>
+    internal WatchLoggerProcessor(
+        HttpClient client,
+        SwitchSource switchSource,
+        WatchDestination destination,
+        int batchSize,
+        TimeSpan? flushInterval,
+        bool ownsDependencies,
+        Func<string?>? defaultTag)
     {
         Guard.IsNotNull(client);
         Guard.IsNotNull(switchSource);
@@ -149,6 +170,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         _circuitBindingVersion = destination.Current.Version;
         _batchSize = batchSize;
         _flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(100);
+        _defaultTagFactory = defaultTag;
 
         _channel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions
         {
@@ -340,12 +362,45 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private static LogEventBatch BuildBatch(List<LogEvent> events)
+    private LogEventBatch BuildBatch(List<LogEvent> events)
     {
+        var defaultTag = ResolveDefaultTag();
+
         var batch = new LogEventBatch();
         foreach (var logEvent in events)
+        {
+            // Post left the tag empty only when neither the probe nor the switch set one, so the order stays
+            // probe, then switch, then default. Applied here, before an event can be held for a later batch.
+            if (defaultTag.Length > 0 && string.IsNullOrEmpty(logEvent.Tag))
+                logEvent.Tag = defaultTag;
+
             batch.Events.Add(logEvent);
+        }
+
         return batch;
+    }
+
+    // Runs the application's function once, here on the flush thread rather than on a logging call: a slow
+    // function (an instance-metadata lookup) blocks no caller, and one that logs only queues an event. A
+    // function that throws or gives nothing leaves the tag empty for good.
+    private string ResolveDefaultTag()
+    {
+        var factory = _defaultTagFactory;
+        if (factory is null)
+            return _defaultTag;
+
+        _defaultTagFactory = null;
+
+        try
+        {
+            _defaultTag = factory() ?? string.Empty;
+        }
+        catch
+        {
+            _defaultTag = string.Empty;
+        }
+
+        return _defaultTag;
     }
 
     private async Task SendBatchAsync(LogEventBatch batch)

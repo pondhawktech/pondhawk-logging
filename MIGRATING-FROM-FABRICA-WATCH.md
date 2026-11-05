@@ -119,6 +119,10 @@ LoggingFactoryLocator.SetFactory(app.Services.GetRequiredService<ILoggerFactory>
   last call won. Test assemblies stand logging up once (below).
 - A sink of your own built on Fabrica.Watch's (a CloudWatch sink, a journal sink) is replaced by the provider, not
   migrated. Its tests go with it.
+- An `IEventSinkProvider` wrapper that set `Tag` on each event that had none (the instance, build and start time)
+  becomes `WatchOptions.DefaultTag`: `AddWatch(url, o => o.DefaultTag = () => "<instance> b<build> s<start>")`.
+  It applies, as the wrapper did, only where nothing else set a tag — the probe or the event's switch.
+  See [the Watch README](src/Pondhawk.Logging.Watch/README.md#telling-instances-apart-the-default-tag).
 
 ## Correlation, subject and tenant
 

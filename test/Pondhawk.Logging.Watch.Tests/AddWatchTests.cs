@@ -111,6 +111,40 @@ public class AddWatchTests
     }
 
     [Fact]
+    public async Task AddWatch_PassesTheDefaultTag_ToTheProcessor()
+    {
+        var delivered = new List<LogEvent>();
+        var handler = new MockHttpHandler();
+        handler.SetHandler(async (req, ct) =>
+        {
+            var batch = await LogEventBatchSerializer.FromStream(await req.Content.ReadAsStreamAsync(ct));
+            if (batch is not null)
+            {
+                lock (delivered)
+                    delivered.AddRange(batch.Events);
+            }
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+        });
+
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.Information);
+        var options = new WatchOptions { FlushInterval = TimeSpan.FromMilliseconds(20), DefaultTag = () => "blue" };
+        var destination = new WatchDestination("http://localhost/D");
+
+        using (var factory = LoggerFactory.Create(b =>
+            b.AddWatch(CreateClient(handler), switches, destination, options, ownsDependencies: false)))
+        {
+            factory.CreateLogger("Svc.Thing").LogWarning("warn");
+        }
+
+        lock (delivered)
+        {
+            delivered.ShouldHaveSingleItem().Tag.ShouldBe("blue");
+        }
+    }
+
+    [Fact]
     public void SwitchFilter_ReactsToLiveSwitchChange_WithoutRebuild()
     {
         var switches = new SwitchSource();

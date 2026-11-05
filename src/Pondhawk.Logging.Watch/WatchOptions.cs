@@ -42,4 +42,16 @@ public class WatchOptions
     /// Polls are conditional (If-None-Match), so an unchanged interval is a cheap 304 with no rebuild.
     /// </summary>
     public TimeSpan? PollInterval { get; set; }
+
+    /// <summary>
+    /// Gets or sets a function that gives the tag for events that neither a diagnostic probe nor their matching
+    /// switch tags — for example the instance, build and start time, so the instances logging into one domain can
+    /// be told apart. Null (the default) leaves those events untagged.
+    /// </summary>
+    /// <remarks>
+    /// Called once, on the background flush thread, when the first batch is sent — never on a logging call. It
+    /// must be able to give its value by then. A function that throws, or returns null or empty, leaves the tag
+    /// empty for the life of the process; it is not called again.
+    /// </remarks>
+    public Func<string?>? DefaultTag { get; set; }
 }
