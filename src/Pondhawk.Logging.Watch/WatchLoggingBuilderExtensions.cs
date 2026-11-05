@@ -133,7 +133,8 @@ public static class WatchLoggingBuilderExtensions
                 destination,
                 options.BatchSize,
                 options.FlushInterval,
-                ownsDependencies));
+                ownsDependencies,
+                options.DefaultTag));
 
         return builder;
     }

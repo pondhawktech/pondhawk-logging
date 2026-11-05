@@ -221,6 +221,31 @@ key arrives with the switches; `AddWatch` registers it for the token check as a 
 Core diagnostics need no type from this package. A failed
 poll keeps the last key; a rebind drops it until the new domain's switches arrive.
 
+### Telling instances apart: the default tag
+
+Several instances often log into one domain — an autoscaling group, a blue/green pair, a rolling deploy.
+`WatchOptions.DefaultTag` gives every event a tag that names the instance:
+
+```csharp
+var started = Process.GetCurrentProcess().StartTime.ToUniversalTime();
+var build = Assembly.GetEntryAssembly()?.GetName().Version;
+
+builder.Logging.AddWatch("http://localhost:11000/MyApp", o =>
+    o.DefaultTag = () => $"{Environment.MachineName} b{build} s{started:yyyy-MM-ddTHH:mm}Z");
+
+// A fixed value:
+builder.Logging.AddWatch("http://localhost:11000/MyApp", o => o.DefaultTag = () => "blue");
+```
+
+- **Order:** an event's tag comes from the probe (`Diagnostics`), then its matching switch, then `DefaultTag`.
+  A switch tag an operator sets on Watch Server hides the default for that category.
+- **When it runs:** the function takes no arguments. It is called once, on the background flush thread, when the
+  first batch is sent — never on a logging call, so a slow lookup (EC2 instance metadata) blocks no caller, and
+  a function that logs only queues an event. It must be able to give its value by then: shortly after start-up.
+- **On failure:** a function that throws, or returns null or empty, leaves events untagged for the life of the
+  process. It is not called again, and logging goes on.
+- Null (the default) leaves events untagged, as before.
+
 ## Key Components
 
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation, subject and tenant), then delivers them.
