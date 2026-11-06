@@ -24,7 +24,7 @@ Five packages, all `net8.0`. The only Pondhawk package any depends on is Pondhaw
 |---------|-------------|
 | [**Pondhawk.Logging**](src/Pondhawk.Logging/README.md) | The structured logging API (method tracing, object/typed-payload logging, `[Sensitive]` masking) on `Microsoft.Extensions.Logging`. **No sink or transport**, and no other package references it — an application references it directly. |
 | [**Pondhawk.Logging.Watch**](src/Pondhawk.Logging.Watch/README.md) | Watch Server provider for `Pondhawk.Logging` — a ZLogger-based provider with Channel-based batching and dynamic switch-based level control. |
-| [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), at Warning by default for Linux production services, or from a floor you choose. |
+| [**Pondhawk.Logging.Console**](src/Pondhawk.Logging.Console/README.md) | **Deprecated: use [Pondhawk.Logging.Journald](src/Pondhawk.Logging.Journald/README.md).** A ZLogger-based console optimized for systemd-journald (sd-daemon priority prefixes, no timestamp/color), at Warning by default for Linux production services, or from a floor you choose. |
 | [**Pondhawk.Logging.CloudWatch**](src/Pondhawk.Logging.CloudWatch/README.md) | Amazon CloudWatch Logs provider for `Pondhawk.Logging` — each event one JSON object Logs Insights can filter on; creates its own stream and group; never blocks or stops the host. |
 | [**Pondhawk.Logging.AspNetCore**](src/Pondhawk.Logging.AspNetCore/README.md) | ASP.NET Core request diagnostics for `Pondhawk.Logging` — correlation id, subject and tenant on every event of a request, a begin/end bracket with status and elapsed time, and an opt-in dump of the whole request. Needs the ASP.NET Core shared framework. |
 | **winston-pondhawk-watch** (npm) | Winston transport for Node.js — batches log events and sends them to Watch Server (`POST /api/sink`). Built and tested on CI; not published to npm. |
@@ -39,7 +39,7 @@ what behaves differently — is in [MIGRATING-FROM-FABRICA-WATCH.md](MIGRATING-F
 ```bash
 dotnet add package Pondhawk.Logging           # the API; no provider brings it in (vendoring its source also works)
 dotnet add package Pondhawk.Logging.Watch     # deliver events to a Watch Server
-dotnet add package Pondhawk.Logging.Console   # journald-optimized console for Linux production
+dotnet add package Pondhawk.Logging.Console   # deprecated: use Pondhawk.Logging.Journald
 dotnet add package Pondhawk.Logging.CloudWatch # deliver events to Amazon CloudWatch Logs
 dotnet add package Pondhawk.Logging.AspNetCore # request diagnostics for ASP.NET Core
 ```
@@ -110,6 +110,8 @@ builder.Logging.AddWatch("http://localhost:11000/MyApp");
 `AddWatch` registers a ZLogger delivery processor and a level filter driven by the Watch server's switch table, so payloads for switch-dropped categories are never serialized. Events are batched over an unbounded Channel and sent as MemoryPack, with a circuit breaker for HTTP resilience. See the [package README](src/Pondhawk.Logging.Watch/README.md) for switching and the event model.
 
 ## Pondhawk.Logging.Console
+
+> **Deprecated.** Use [`Pondhawk.Logging.Journald`](src/Pondhawk.Logging.Journald/README.md): `AddJournald(LogLevel.Warning)` in place of `AddJournaldConsole()`. Under systemd it writes native journal fields; anywhere else it writes the same line.
 
 A console optimized for **systemd-journald** on Linux production servers — at Warning by default, or from a floor you pass (`AddJournaldConsole(LogLevel.Information)`):
 

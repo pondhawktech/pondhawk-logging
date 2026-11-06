@@ -107,8 +107,8 @@ Fabrica.Watch calls from the rules.
 builder.Logging.ClearProviders();
 builder.Logging.AddWatch("https://pwk_…@watch.example.com/MyApp");       // Watch Server
 builder.Logging.AddCloudWatch("/myapp", "orders-api");                    // CloudWatch Logs
-builder.Logging.AddJournaldConsole();                                     // systemd journal, Warning and above
-// builder.Logging.AddJournaldConsole(LogLevel.Information);              // …or from Information, as Fabrica's UseJournal wrote
+builder.Logging.AddJournald(LogLevel.Warning);                            // systemd journal, Warning and above
+// builder.Logging.AddJournald();                                         // …or from Information, as Fabrica's UseJournal wrote
 
 var app = builder.Build();
 LoggingFactoryLocator.SetFactory(app.Services.GetRequiredService<ILoggerFactory>());   // once, after the host is built
@@ -210,7 +210,7 @@ plain `1` is refused — logged once, the request otherwise unaffected. See the
 | `CreateEvent` + `LogEvent` | a payload method at the event's level, or `ErrorWithContext`/`WarningWithContext` |
 | `this.GetLogger()`, `this.EnterMethod<T>()` | `this.GetLogger()`, `this.EnterMethod()` |
 | `WatchFactoryLocator.Factory.GetLogger(…)` — last `SetFactory` wins | `LoggingFactoryLocator.GetFactory().CreateLogger(…)` — set once |
-| `WatchFactoryBuilder.Use…` | `AddWatch` / `AddCloudWatch` / `AddJournaldConsole` |
+| `WatchFactoryBuilder.Use…` | `AddWatch` / `AddCloudWatch` / `AddJournald` |
 | Correlation, subject, tenant on each logger | the ambient `IOperationContext` |
 | `Fabrica.Watch.SensitiveAttribute` | `Pondhawk.Logging.SensitiveAttribute` |
 | The MEL bridge | not needed |

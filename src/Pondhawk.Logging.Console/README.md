@@ -1,5 +1,17 @@
 # Pondhawk.Logging.Console
 
+> **Deprecated.** Use [`Pondhawk.Logging.Journald`](../Pondhawk.Logging.Journald/README.md). Under systemd it
+> writes each event as native journal fields; anywhere else it writes the same line as this console.
+>
+> | Was | Now |
+> |---|---|
+> | `using Pondhawk.Logging.Console;` | `using Pondhawk.Logging.Journald;` |
+> | `AddJournaldConsole()` | `AddJournald(LogLevel.Warning)` |
+> | `AddJournaldConsole(level)` | `AddJournald(level)` |
+>
+> `AddJournald` with no level starts at Information, not Warning. Its floor can also be set under
+> `Logging:Journald:LogLevel`. Use one of the two packages, not both: both write to the journal.
+
 A ZLogger-based `Microsoft.Extensions.Logging` console optimized for **systemd-journald**, for Linux
 production services. Each line is written for journald to parse, and the console is **at Warning by default**
 so only warnings, errors, and critical events surface — or from a floor you choose.

@@ -125,7 +125,7 @@ internal static class Rules
     public static readonly DiagnosticDescriptor Bootstrap = Rule(
         "PHLM021",
         "Fabrica.Watch set-up",
-        "'{0}' sets Fabrica.Watch up; configure logging with AddWatch, AddCloudWatch or AddJournaldConsole",
+        "'{0}' sets Fabrica.Watch up; configure logging with AddWatch, AddCloudWatch or AddJournald",
         "No rewrite. Replace WatchFactoryBuilder with the providers on ILoggingBuilder, and call LoggingFactoryLocator.SetFactory once, after the host is built; see the migration guide.");
 
     public static readonly DiagnosticDescriptor Bridge = Rule(
