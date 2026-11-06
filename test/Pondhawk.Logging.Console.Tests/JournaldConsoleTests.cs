@@ -75,10 +75,12 @@ public class JournaldConsoleTests
         using var factory = LoggerFactory.Create(b =>
         {
             b.SetMinimumLevel(LogLevel.Trace);
+#pragma warning disable CS0618 // AddJournaldConsole is deprecated; it is still tested until it is removed.
             if (floor is { } minimum)
                 b.AddJournaldConsole(minimum);
             else
                 b.AddJournaldConsole();
+#pragma warning restore CS0618
         });
 
         factory.CreateLogger("My.Category").IsEnabled(level).ShouldBe(written);

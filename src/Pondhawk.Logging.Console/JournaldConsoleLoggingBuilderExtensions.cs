@@ -19,14 +19,23 @@ namespace Pondhawk.Logging.Console;
 /// Linux production service console that surfaces only warnings and errors. A service whose journal is its
 /// record of routine work — or a command-line tool whose output is a CI job's log — can lower the floor.
 /// </summary>
+/// <remarks>
+/// Deprecated: use <c>AddJournald</c> from Pondhawk.Logging.Journald. Under systemd it writes native journal
+/// fields; anywhere else it writes the same line as this console.
+/// </remarks>
 public static class JournaldConsoleLoggingBuilderExtensions
 {
+    private const string Deprecated =
+        "Use AddJournald from Pondhawk.Logging.Journald: it writes native journal fields under systemd and the same line anywhere else. " +
+        "AddJournaldConsole() is AddJournald(LogLevel.Warning); AddJournaldConsole(level) is AddJournald(level).";
+
     /// <summary>
     /// Adds the journald-optimized ZLogger console at <see cref="LogLevel.Warning"/>: only Warning, Error and
     /// Critical reach it.
     /// </summary>
     /// <param name="builder">The logging builder.</param>
     /// <returns>The logging builder for chaining.</returns>
+    [Obsolete(JournaldConsoleLoggingBuilderExtensions.Deprecated)]
     public static ILoggingBuilder AddJournaldConsole(this ILoggingBuilder builder) =>
         builder.AddJournaldConsole(LogLevel.Warning);
 
@@ -37,6 +46,7 @@ public static class JournaldConsoleLoggingBuilderExtensions
     /// <param name="builder">The logging builder.</param>
     /// <param name="minimum">The lowest level written — <see cref="LogLevel.Information"/> for a journal that records routine work.</param>
     /// <returns>The logging builder for chaining.</returns>
+    [Obsolete(JournaldConsoleLoggingBuilderExtensions.Deprecated)]
     public static ILoggingBuilder AddJournaldConsole(this ILoggingBuilder builder, LogLevel minimum)
     {
         // Scoped to this provider: it sets this console's floor and no other provider's.
