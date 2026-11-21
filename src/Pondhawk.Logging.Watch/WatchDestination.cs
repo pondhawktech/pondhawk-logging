@@ -1,6 +1,7 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Diagnostics.CodeAnalysis;
 using CommunityToolkit.Diagnostics;
 
 namespace Pondhawk.Logging.Watch;
@@ -130,6 +131,9 @@ public sealed class WatchDestination
                 return false;
 
             Volatile.Write(ref _current, Binding.Absolute(current.Version + 1, parsed));
+
+            // A switch poll held for the old binding must not delay the new one.
+            current.MarkReplaced();
             return true;
         }
     }
@@ -141,8 +145,11 @@ public sealed class WatchDestination
     /// One immutable view of the destination. Consumers read it once per batch or poll so the domain they
     /// stamp on a batch cannot disagree with the URL they post it to.
     /// </summary>
+    [SuppressMessage("CA1001", "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable", Justification = "The token source has no timer to release, and a binding is read by pollers long after a rebind replaces it; disposing it would make a late read of Replaced throw")]
     internal sealed class Binding
     {
+        private readonly CancellationTokenSource _replaced = new();
+
         private Binding(long version, WatchUrl? source, string domain, Uri? sinkUri, Uri? switchesUri, bool isRelative, bool isUnbound)
         {
             Version = version;
@@ -178,6 +185,14 @@ public sealed class WatchDestination
 
         /// <summary>True when no server has been named yet, so there is nowhere to post or poll.</summary>
         public bool IsUnbound { get; }
+
+        /// <summary>
+        /// Cancelled when a <see cref="Rebind"/> replaces this binding, so a switch poll held for it — or the
+        /// wait before the next one — ends at once and the new binding is polled.
+        /// </summary>
+        public CancellationToken Replaced => _replaced.Token;
+
+        internal void MarkReplaced() => _replaced.Cancel();
 
         public static Binding Absolute(long version, WatchUrl url)
             => new(
