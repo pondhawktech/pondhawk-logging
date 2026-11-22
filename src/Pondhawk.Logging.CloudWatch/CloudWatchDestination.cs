@@ -32,7 +32,7 @@ public sealed partial class CloudWatchDestination
     /// <summary>The longest name CloudWatch Logs accepts for a log group.</summary>
     public const int MaxLogGroupLength = 512;
 
-    private readonly object _rebindLock = new();
+    private readonly Lock _rebindLock = new();
     private Binding _current;
 
     /// <summary>Creates a destination bound to a log group.</summary>

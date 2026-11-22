@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/pondhawktech/pondhawk-logging/actions/workflows/build.yml"><img src="https://github.com/pondhawktech/pondhawk-logging/actions/workflows/build.yml/badge.svg" alt="Build" /></a>
-  <img src="https://img.shields.io/badge/.NET-8.0-512bd4" alt=".NET 8" />
+  <img src="https://img.shields.io/badge/.NET-10.0-512bd4" alt=".NET 10" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
   <a href="https://www.nuget.org/packages/Pondhawk.Logging"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging?label=Logging" alt="Pondhawk.Logging on NuGet" /></a>
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.Watch"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.Watch?label=Logging.Watch" alt="Pondhawk.Logging.Watch on NuGet" /></a>
@@ -18,7 +18,7 @@
   <a href="https://www.nuget.org/packages/Pondhawk.Logging.AspNetCore"><img src="https://img.shields.io/nuget/v/Pondhawk.Logging.AspNetCore?label=Logging.AspNetCore" alt="Pondhawk.Logging.AspNetCore on NuGet" /></a>
 </p>
 
-Five packages, all `net8.0`. The only Pondhawk package any depends on is Pondhawk.Context, which holds the unit of work's correlation id, subject and tenant. **No package depends on the logging API**: an application that uses it references `Pondhawk.Logging` itself, from NuGet as usual or by vendoring its source (see [Referencing, vendoring or dropping it](src/Pondhawk.Logging/README.md#referencing-vendoring-or-dropping-it)), and can drop it without breaking. The providers read only the names and values it puts on the log state.
+Five packages, all `net10.0` (the migration analyzer, `netstandard2.0`, aside). The only Pondhawk package any depends on is Pondhawk.Context, which holds the unit of work's correlation id, subject and tenant. **No package depends on the logging API**: an application that uses it references `Pondhawk.Logging` itself, from NuGet as usual or by vendoring its source (see [Referencing, vendoring or dropping it](src/Pondhawk.Logging/README.md#referencing-vendoring-or-dropping-it)), and can drop it without breaking. The providers read only the names and values it puts on the log state.
 
 | Package | Description |
 |---------|-------------|
@@ -158,11 +158,11 @@ Everything is logged under `Pondhawk.Diagnostics.Http`, which takes its own swit
 ## Repository Layout
 
 ```
-src/Pondhawk.Logging/          The logging API on Microsoft.Extensions.Logging (net8.0)
-src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + switching (net8.0)
-src/Pondhawk.Logging.Console/  journald-optimized ZLogger console (net8.0)
-src/Pondhawk.Logging.CloudWatch/  CloudWatch Logs provider — ZLogger processor (net8.0)
-src/Pondhawk.Logging.AspNetCore/  ASP.NET Core request diagnostics — three middlewares (net8.0)
+src/Pondhawk.Logging/          The logging API on Microsoft.Extensions.Logging (net10.0)
+src/Pondhawk.Logging.Watch/    Watch Server provider — ZLogger processor + switching (net10.0)
+src/Pondhawk.Logging.Console/  journald-optimized ZLogger console (net10.0)
+src/Pondhawk.Logging.CloudWatch/  CloudWatch Logs provider — ZLogger processor (net10.0)
+src/Pondhawk.Logging.AspNetCore/  ASP.NET Core request diagnostics — three middlewares (net10.0)
 src/winston-pondhawk-watch/    Winston transport for Watch Server (TypeScript, npm)
 test/Pondhawk.Logging.Tests/
 test/Pondhawk.Logging.Watch.Tests/

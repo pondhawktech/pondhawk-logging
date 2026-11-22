@@ -13,7 +13,7 @@ way), may vendor its source instead, and must be able to drop it without breakin
 state and keep their own copies of them (`LogStateContract`, `ProbeContract`), checked against this package
 by their test projects.
 
-Targets `net8.0` (single target — no conditional compilation). Fully standalone — no dependency on other
+Targets `net10.0` (single target — no conditional compilation). Fully standalone — no dependency on other
 Pondhawk packages. Namespace: `Pondhawk.Logging`.
 
 ---

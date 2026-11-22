@@ -7,7 +7,7 @@ adds no logger type of its own — application code logs through the standard `I
 no code edits. It has **no sink or transport** — provider packages (e.g.
 [`Pondhawk.Logging.Watch`](../Pondhawk.Logging.Watch/README.md)) supply delivery.
 
-Fully standalone — no dependency on other Pondhawk packages. Targets `net8.0`.
+Fully standalone — no dependency on other Pondhawk packages. Targets `net10.0`.
 
 ## The Logging API
 

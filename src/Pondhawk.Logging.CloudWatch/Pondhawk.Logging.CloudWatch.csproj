@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <Title>Pondhawk Logging — CloudWatch Logs provider</Title>
@@ -37,6 +37,7 @@
     <PackageReference Include="CommunityToolkit.Diagnostics" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Pondhawk.Context" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="ZLogger" />
   </ItemGroup>
 

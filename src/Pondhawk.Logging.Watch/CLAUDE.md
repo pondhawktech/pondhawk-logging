@@ -13,7 +13,7 @@ this package **does not reference**: an application references the API itself (f
 it, so no package may depend on it. See [`../Pondhawk.Logging/CLAUDE.md`](../Pondhawk.Logging/CLAUDE.md) for the full
 logging guide.
 
-Targets `net8.0` (single target — no conditional compilation). References `Pondhawk.Context` (the ambient
+Targets `net10.0` (single target — no conditional compilation). References `Pondhawk.Context` (the ambient
 `IOperationContext`); no dependency on other Pondhawk packages.
 
 ---
