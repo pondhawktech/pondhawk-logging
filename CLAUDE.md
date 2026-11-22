@@ -38,7 +38,7 @@ cd src/winston-pondhawk-watch && npm ci && npm run build && npm test
 
 ## Project Setup
 
-- **.NET 8** — every project targets `net8.0` (`LangVersion=latest`, `Nullable=enable`).
+- **.NET 10** — every project targets `net10.0` (`LangVersion=latest`, `Nullable=enable`), except the migration analyzer (`netstandard2.0`).
 - **Central package management** via `Directory.Packages.props`.
 - `TreatWarningsAsErrors` on; Meziantou analyzer enforced (`src/Directory.Build.props`).
 - Versioning: `<VersionPrefix>` in `src/Directory.Build.props` holds the last released version, and `publish.yml` bumps it. Pushes to `main` publish `-ci.<n>` prereleases of the next patch; a local `Pack` gets `-local`.
@@ -105,7 +105,7 @@ A ZLogger-based provider that sends each event to Amazon CloudWatch Logs as one 
 
 ### Pondhawk.Logging.Migration — Fabrica.Watch migration analyzer (development-only)
 
-A Roslyn analyzer with code fixes, `netstandard2.0` (the one project not on `net8.0`; PolySharp supplies the attributes it lacks), packed under `analyzers/dotnet/cs` as a development dependency. It recognises Fabrica.Watch by symbol name, never by assembly, finds arguments by parameter rather than position (vendored copies differ), and never reports Fabrica.Watch's own source. Guide: `MIGRATING-FROM-FABRICA-WATCH.md`. Plan: `docs/plans/2026-10-15-fabrica-watch-migration-support.md`, section 2.
+A Roslyn analyzer with code fixes, `netstandard2.0` (the one project not on `net10.0`; PolySharp supplies the attributes it lacks), packed under `analyzers/dotnet/cs` as a development dependency. It recognises Fabrica.Watch by symbol name, never by assembly, finds arguments by parameter rather than position (vendored copies differ), and never reports Fabrica.Watch's own source. Guide: `MIGRATING-FROM-FABRICA-WATCH.md`. Plan: `docs/plans/2026-10-15-fabrica-watch-migration-support.md`, section 2.
 
 - **FabricaWatchAnalyzer** (one analyzer, all rules) and **FabricaWatchCodeFixProvider** (one fixer; its Fix All applies every diagnostic in a document as a single rewrite, so nested fixes compose). **Rewrites** works each fix out from the original node and applies it to the node as rewritten so far; new names are written `global::…` and reduced by the simplifier, so no fix makes `ILogger` ambiguous while `using Fabrica.Watch;` remains.
 - **The using swap (PHLM015, `UsingSwap`, `CarriedOver`)**: names that mean the same under `Microsoft.Extensions.Logging` + `Pondhawk.Logging` (`ILogger`, `[Sensitive]`, `PayloadType`, `GetLogger`, `EnterMethod`, `LogSql`, `LogObject`, …) need no rewrite. PHLM015 fires once every Fabrica.Watch use in a file is one of those, and replaces the usings with the ones the file needs. PHLM013/014/016 fire only where the text must change.

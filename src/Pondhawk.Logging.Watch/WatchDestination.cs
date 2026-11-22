@@ -40,7 +40,7 @@ namespace Pondhawk.Logging.Watch;
 /// </remarks>
 public sealed class WatchDestination
 {
-    private readonly object _rebindLock = new();
+    private readonly Lock _rebindLock = new();
     private Binding _current;
 
     /// <summary>Creates a destination bound to a Watch URL.</summary>

@@ -106,7 +106,7 @@ public sealed class CloudWatchLoggerProcessor : IAsyncLogProcessor
     private int _instanceIdAttempts;
     private long _quietUntilTicks;
 
-    private readonly object _heldLock = new();
+    private readonly Lock _heldLock = new();
     private readonly Queue<Outgoing> _held = new();
 
     /// <summary>Initializes a processor writing to <paramref name="destination"/>.</summary>

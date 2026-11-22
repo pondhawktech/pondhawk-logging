@@ -20,7 +20,9 @@ internal sealed class MigrationTest : CSharpCodeFixTest<FabricaWatchAnalyzer, Fa
 
     public MigrationTest(string source, string fixedSource, params string[] rules)
     {
-        ReferenceAssemblies = ReferenceAssemblies.Net.Net80;
+        // The same framework as the Pondhawk.Logging build added below: against older reference assemblies its types
+        // do not resolve fully, and the simplifier then leaves the names the fixes write in full.
+        ReferenceAssemblies = ReferenceAssemblies.Net.Net100;
         TestState.AdditionalReferences.Add(typeof(Microsoft.Extensions.Logging.ILogger).Assembly);
         TestState.AdditionalReferences.Add(typeof(LoggingExtensions).Assembly);
 

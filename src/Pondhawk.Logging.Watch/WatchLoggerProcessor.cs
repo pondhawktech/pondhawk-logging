@@ -61,7 +61,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private int _consecutiveFailures;
     private DateTime _circuitOpenUntil = DateTime.MinValue;
     private long _circuitBindingVersion;
-    private readonly object _circuitLock = new();
+    private readonly Lock _circuitLock = new();
 
     // Critical event buffer
     private readonly ConcurrentQueue<LogEvent> _criticalBuffer = new();
