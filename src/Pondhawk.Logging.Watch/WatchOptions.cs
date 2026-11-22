@@ -38,10 +38,20 @@ public class WatchOptions
     public TimeSpan? FlushInterval { get; set; }
 
     /// <summary>
-    /// Gets or sets the switch polling interval. Null uses the WatchSwitchSource default (5 seconds).
-    /// Polls are conditional (If-None-Match), so an unchanged interval is a cheap 304 with no rebuild.
+    /// Gets or sets the switch polling interval: the interval between polls when long polling is off or the
+    /// Watch Server does not support it, and the wait after a failed poll. Null uses the WatchSwitchSource
+    /// default (5 seconds). Polls are conditional (If-None-Match), so an unchanged interval is a cheap 304 with
+    /// no rebuild.
     /// </summary>
     public TimeSpan? PollInterval { get; set; }
+
+    /// <summary>
+    /// Gets or sets how long the Watch Server may hold a switch poll open waiting for the switches to change
+    /// (<c>Prefer: wait</c>), so a change reaches the process at once. Null uses the default, 55 seconds;
+    /// <see cref="TimeSpan.Zero"/> turns long polling off. A Watch Server that does not hold polls is polled at
+    /// <see cref="PollInterval"/>.
+    /// </summary>
+    public TimeSpan? LongPollWait { get; set; }
 
     /// <summary>
     /// Gets or sets a function that gives the tag for events that neither a diagnostic probe nor their matching

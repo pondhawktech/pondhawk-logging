@@ -128,8 +128,8 @@ normal state of a healthy process. While unbound:
 - anything below Warning is discarded, on the same reasoning as an outage: startup tracing is not worth
   holding memory for.
 
-The poll loop keeps ticking while unbound, so switch polling resumes on the next interval after a rebind
-with no restart.
+A rebind ends the poll loop's wait (and cancels a held poll), so switch polling starts on the new binding at
+once, with no restart.
 
 ## Switch-based level gating
 
@@ -142,6 +142,15 @@ call site, with no change to calling code — callers just hold a plain `ILogger
 
 The switch table is polled from the Watch Server by `WatchSwitchSource`; updates take effect on the next
 log call (version-based invalidation) without recreating loggers.
+
+**Long polling.** A poll with an ETag sends `Prefer: wait=<LongPollWait>` (default 55 s, Watch's cap;
+`TimeSpan.Zero` turns it off). Watch holds it until the switches change (200) or the wait runs out (304),
+and marks a held answer with `Preference-Applied`. After a held answer the loop polls again at once; after
+an answer without it (an older Watch) or a failure it waits `PollInterval`, so a proxy that cuts held
+requests never causes a tight loop. The first poll has no ETag, so `Start`'s 5 s wait is never held. Each
+held poll times out at the wait plus 15 s; a shorter `HttpClient.Timeout` lowers the wait to fit, or drops
+`Prefer`. Each `WatchDestination.Binding` carries a `Replaced` token that `Rebind` cancels, ending a held
+poll or the interval wait. `UpdateAsync` is never held.
 
 **The short-circuit is per category, not per provider.** `ILogger.IsEnabled` is true when *any* registered
 provider would keep the event, so a provider-scoped filter — `AddJournaldConsole`'s Warning floor — never

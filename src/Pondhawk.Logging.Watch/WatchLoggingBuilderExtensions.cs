@@ -87,6 +87,8 @@ public static class WatchLoggingBuilderExtensions
         // across a rebind to a different server.
         var httpClient = new HttpClient();
         var switches = new WatchSwitchSource(httpClient, destination, options.PollInterval);
+        if (options.LongPollWait is { } longPollWait)
+            switches.LongPollWait = longPollWait;
         switches.WhenNotMatched(options.DefaultLevel, options.DefaultColor);
         switches.Start();
 

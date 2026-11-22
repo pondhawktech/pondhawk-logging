@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.Drawing;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -16,8 +17,10 @@ namespace Pondhawk.Logging.Watch;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Periodically polls GET /api/switches?domain={domain} to fetch switch configuration.
-/// When switches are fetched, Update() is called which increments Version.
+/// Polls GET /api/switches?domain={domain} to fetch switch configuration. When switches are fetched,
+/// Update() is called which increments Version. A conditional poll asks Watch to hold it until the
+/// switches change (<c>Prefer: wait</c>, see <see cref="LongPollWait"/>); a held answer is followed by the
+/// next poll at once, anything else by the poll interval.
 /// </para>
 /// <para>
 /// Thread-safety: All operations are thread-safe. Polling runs on a background task.
@@ -55,7 +58,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     /// </summary>
     /// <param name="client">The HTTP client to use for requests.</param>
     /// <param name="domain">The domain name to fetch switches for.</param>
-    /// <param name="pollInterval">The interval between polls. Default is 5 seconds.</param>
+    /// <param name="pollInterval">
+    /// The interval between polls when long polling is off or not supported, and the wait after a failed poll.
+    /// Default is 5 seconds.
+    /// </param>
     public WatchSwitchSource(HttpClient client, string domain, TimeSpan? pollInterval = null)
         : this(client, NewRelativeDestination(domain), pollInterval)
     {
@@ -67,7 +73,10 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     /// </summary>
     /// <param name="client">The HTTP client to use for requests.</param>
     /// <param name="destination">The server and domain to fetch switches for.</param>
-    /// <param name="pollInterval">The interval between polls. Default is 5 seconds.</param>
+    /// <param name="pollInterval">
+    /// The interval between polls when long polling is off or not supported, and the wait after a failed poll.
+    /// Default is 5 seconds.
+    /// </param>
     public WatchSwitchSource(HttpClient client, WatchDestination destination, TimeSpan? pollInterval = null)
     {
         Guard.IsNotNull(client);
@@ -121,14 +130,61 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
     }
 
     /// <summary>
-    /// Fetches switches from the server and updates the configuration.
+    /// Fetches switches from the server and updates the configuration. Answered at once: the server is never
+    /// asked to hold this request.
     /// </summary>
     public override async Task UpdateAsync(CancellationToken ct = default)
     {
         try
         {
-            var binding = _destination.Current;
+            await PollAsync(_destination.Current, longPoll: false, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Silently ignore failures — will retry on next poll
+        }
+    }
 
+    /// <summary>
+    /// Gets or sets how long Watch may hold a conditional switch poll open waiting for the switches to change
+    /// (<c>Prefer: wait</c>). Default 55 seconds, Watch's cap. <see cref="TimeSpan.Zero"/> turns long polling
+    /// off, so every poll is answered at once and the next one follows the poll interval. Set it before
+    /// <see cref="Start"/>.
+    /// </summary>
+    /// <remarks>
+    /// A held poll is answered as soon as the switches change, so a change reaches the process at once rather
+    /// than on the next interval. After a held answer the next poll is sent at once; an older Watch that does
+    /// not hold polls is polled at the poll interval, as is any server after a failed poll. When the
+    /// <see cref="HttpClient.Timeout"/> leaves too little room, the wait is lowered to fit, or dropped.
+    /// </remarks>
+    public TimeSpan LongPollWait { get; set; } = DefaultLongPollWait;
+
+    internal static readonly TimeSpan DefaultLongPollWait = TimeSpan.FromSeconds(55);
+
+    // How long past the requested wait a held poll is given before it counts as a failure: Watch may answer a
+    // little late, and the response still has to arrive.
+    internal static readonly TimeSpan HoldGrace = TimeSpan.FromSeconds(15);
+
+    // What one poll came to, which decides when the next is sent.
+    internal enum PollOutcome
+    {
+        /// <summary>Watch held the poll (<c>Preference-Applied</c>): poll again at once.</summary>
+        Held,
+
+        /// <summary>Answered without a hold — long polling off or not supported, or unbound: wait the interval.</summary>
+        Answered,
+
+        /// <summary>No answer, an error status, or an answer that could not be applied: wait the interval.</summary>
+        Failed,
+
+        /// <summary>The binding polled was replaced by a rebind: poll the new one at once.</summary>
+        Rebound
+    }
+
+    internal async Task<PollOutcome> PollAsync(WatchDestination.Binding binding, bool longPoll, CancellationToken ct)
+    {
+        try
+        {
             // An ETag names a switch set on the server we fetched it from. After a rebind it would have us
             // claim to hold the new domain's switches when we hold the old domain's, so drop it.
             if (_eTagBindingVersion != binding.Version)
@@ -139,48 +195,98 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
             }
 
             // Nothing to poll until a server is named. The switch table keeps the defaults AddWatch gave it,
-            // and the poll loop keeps ticking, so a rebind is picked up on the next interval.
+            // and the poll loop polls again as soon as a rebind names one.
             if (binding.IsUnbound)
-                return;
+                return PollOutcome.Answered;
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, binding.SwitchesUri);
-            if (_lastETag is not null)
-                request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);
-            if (binding.ApiKey is not null)
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", binding.ApiKey);
+            // Watch holds a poll only when it can tell whether anything changed, so only one with an ETag asks.
+            var wait = longPoll && _lastETag is not null ? EffectiveWait(LongPollWait, _client.Timeout) : 0;
 
-            using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
+            using var request = NewRequest(binding, wait);
 
-            // Unchanged since our last successful fetch: skip both the download and the rebuild.
-            if (response.StatusCode == HttpStatusCode.NotModified)
-                return;
+            // A rebind ends a held poll at once; a hold that runs well past the wait asked for is a failure.
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, binding.Replaced);
+            if (wait > 0)
+                linked.CancelAfter(TimeSpan.FromSeconds(wait) + HoldGrace);
 
-            if (!response.IsSuccessStatusCode)
-                return;
-
-            var payload = await response.Content.ReadFromJsonAsync<SwitchesResponse>(ct).ConfigureAwait(false);
-            if (payload?.Switches is not null)
+            try
             {
-                var defs = payload.Switches.Select(s => new SwitchDef
-                {
-                    Pattern = s.Pattern,
-                    Tag = s.Tag,
-                    Level = (LogLevel)Math.Clamp(s.Level, (int)LogLevel.Trace, (int)LogLevel.None),
-                    Color = Color.FromArgb(s.Color)
-                }).ToList();
+                using var response = await _client.SendAsync(request, linked.Token).ConfigureAwait(false);
 
-                Update(defs);
-                Volatile.Write(ref _probeKey, ProbeKeyOf(payload.ProbeKey, binding.Domain));
+                var held = response.Headers.Contains("Preference-Applied");
 
-                // Only remember the ETag once the corresponding switches are actually applied, so a
-                // mid-parse failure doesn't leave us claiming to hold a set we never installed.
-                _lastETag = response.Headers.ETag?.ToString();
+                // Unchanged since our last successful fetch: skip both the download and the rebuild.
+                if (response.StatusCode == HttpStatusCode.NotModified)
+                    return held ? PollOutcome.Held : PollOutcome.Answered;
+
+                if (!response.IsSuccessStatusCode || !await ApplyAsync(response, binding, linked.Token).ConfigureAwait(false))
+                    return PollOutcome.Failed;
+
+                return held ? PollOutcome.Held : PollOutcome.Answered;
             }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && binding.Replaced.IsCancellationRequested)
+            {
+                return PollOutcome.Rebound;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
-            // Silently ignore failures — will retry on next poll
+            // Will retry after the poll interval.
+            return PollOutcome.Failed;
         }
+    }
+
+    private HttpRequestMessage NewRequest(WatchDestination.Binding binding, int wait)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, binding.SwitchesUri);
+        if (_lastETag is not null)
+            request.Headers.TryAddWithoutValidation("If-None-Match", _lastETag);
+        if (wait > 0)
+            request.Headers.TryAddWithoutValidation("Prefer", "wait=" + wait.ToString(CultureInfo.InvariantCulture));
+        if (binding.ApiKey is not null)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", binding.ApiKey);
+        return request;
+    }
+
+    // Installs the switches a 200 carries; false when it carries none.
+    private async Task<bool> ApplyAsync(HttpResponseMessage response, WatchDestination.Binding binding, CancellationToken ct)
+    {
+        var payload = await response.Content.ReadFromJsonAsync<SwitchesResponse>(ct).ConfigureAwait(false);
+        if (payload?.Switches is null)
+            return false;
+
+        var defs = payload.Switches.Select(s => new SwitchDef
+        {
+            Pattern = s.Pattern,
+            Tag = s.Tag,
+            Level = (LogLevel)Math.Clamp(s.Level, (int)LogLevel.Trace, (int)LogLevel.None),
+            Color = Color.FromArgb(s.Color)
+        }).ToList();
+
+        Update(defs);
+        Volatile.Write(ref _probeKey, ProbeKeyOf(payload.ProbeKey, binding.Domain));
+
+        // Only remember the ETag once the corresponding switches are actually applied, so a
+        // mid-parse failure doesn't leave us claiming to hold a set we never installed.
+        _lastETag = response.Headers.ETag?.ToString();
+        return true;
+    }
+
+    /// <summary>
+    /// The whole seconds to ask Watch to hold a poll, or 0 to ask for no hold: the configured wait, lowered so
+    /// the hold and its grace fit inside the client's own timeout.
+    /// </summary>
+    internal static int EffectiveWait(TimeSpan configured, TimeSpan clientTimeout)
+    {
+        var wait = configured;
+        if (clientTimeout != Timeout.InfiniteTimeSpan && wait > clientTimeout - HoldGrace)
+            wait = clientTimeout - HoldGrace;
+
+        return wait >= TimeSpan.FromSeconds(1) ? (int)Math.Min(wait.TotalSeconds, int.MaxValue) : 0;
     }
 
     /// <summary>
@@ -205,10 +311,12 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
 
     private async Task PollLoopAsync(CancellationToken ct)
     {
-        // Initial fetch — Start() blocks on _ready until this completes.
+        // Initial fetch — Start() blocks on _ready until this completes. It has no ETag, so it is never held.
+        var outcome = PollOutcome.Failed;
+        var polled = _destination.Current;
         try
         {
-            await UpdateAsync(ct).ConfigureAwait(false);
+            outcome = await PollAsync(polled, longPoll: true, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -226,8 +334,15 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
         {
             try
             {
-                await Task.Delay(_pollInterval, ct).ConfigureAwait(false);
-                await UpdateAsync(ct).ConfigureAwait(false);
+                // After a held answer Watch is ready for the next poll at once; after anything else — an older
+                // Watch, long polling off, a failure — wait the interval, so a proxy that cuts held requests
+                // short never causes a tight loop. A rebind of the binding just polled ends the wait at once, even
+                // one that came before the wait began: the new binding is polled now.
+                if (outcome is not (PollOutcome.Held or PollOutcome.Rebound))
+                    await DelayUnlessRebound(polled, ct).ConfigureAwait(false);
+
+                polled = _destination.Current;
+                outcome = await PollAsync(polled, longPoll: true, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -236,7 +351,21 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
             catch
             {
                 // Continue polling even on failure
+                outcome = PollOutcome.Failed;
             }
+        }
+    }
+
+    private async Task DelayUnlessRebound(WatchDestination.Binding binding, CancellationToken ct)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, binding.Replaced);
+        try
+        {
+            await Task.Delay(_pollInterval, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Rebound: poll the new binding now.
         }
     }
 

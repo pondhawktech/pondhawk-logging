@@ -191,7 +191,7 @@ var destination = provider.GetRequiredService<WatchDestination>();
 A rebind tears nothing down. Events already queued — including any held in the critical-event buffer
 during an outage — are still delivered; they go to the new destination and carry the new domain, since
 the batch's domain and the URL it is posted to are read from one snapshot. Switch polling moves to the
-new domain on the next poll (dropping the ETag it held for the old one), and the circuit breaker is
+new domain at once — a poll held for the old one is cancelled, and the ETag it held is dropped — and the circuit breaker is
 reset so an unreachable old server does not hold the new one shut. `Rebind` returns `false` and
 disturbs nothing when handed the destination already in use, so a client polling for configuration can
 call it unconditionally.
@@ -249,7 +249,7 @@ builder.Logging.AddWatch("http://localhost:11000/MyApp", o => o.DefaultTag = () 
 ## Key Components
 
 - **WatchLoggerProcessor** -- a ZLogger `IAsyncLogProcessor` with unbounded `Channel` batching. Converts ZLogger entries to Watch `LogEvent` instances on the calling thread (capturing correlation, subject and tenant), then delivers them.
-- **Switching** -- Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching (longest prefix wins). `WatchSwitchSource` polls a Watch Server for switch configuration. `AddWatch` turns the switch table into a `Microsoft.Extensions.Logging` filter that gates `IsEnabled`.
+- **Switching** -- Dynamic log level control via `SwitchSource`/`SwitchDef` with pattern matching (longest prefix wins). `WatchSwitchSource` polls a Watch Server for switch configuration. A conditional poll asks Watch to hold it until the switches change (`Prefer: wait`, up to `LongPollWait`, default 55 s; `TimeSpan.Zero` turns it off), so a change arrives at once; after a held answer the next poll goes at once, otherwise — an older Watch, or a failure — after `PollInterval`. `AddWatch` turns the switch table into a `Microsoft.Extensions.Logging` filter that gates `IsEnabled`.
 - **HTTP delivery** -- Posts event batches to the Watch Server with a circuit breaker and critical-event buffering.
 - **WatchDestination** -- the server and domain being delivered to, re-read per batch and per switch poll so it can be rebound at runtime without rebuilding the logging factory or dropping buffered events. Can start `Unbound` for a host whose destination arrives after startup.
 - **LogEvent / LogEventBatch** -- MemoryPack-serializable event model.
