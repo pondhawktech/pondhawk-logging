@@ -2,7 +2,7 @@
 
   <PropertyGroup Label="Version">
     <!-- The last released version. publish.yml bumps and commits it. -->
-    <VersionPrefix>5.0.0</VersionPrefix>
+    <VersionPrefix>5.0.1</VersionPrefix>
   </PropertyGroup>
 
   <PropertyGroup>
