@@ -232,12 +232,23 @@ work that logs no Error sends nothing extra.
 - **Watch only.** The switch filter lets a marked unit of work's Debug through to `WatchLoggerProvider` and to
   no other provider. Trace is never let through.
 - **Payload content is dropped** from a kept event; the title stays.
-- **Kept per correlation id**, in memory, within `WatchOptions.Retro`'s limits: `MaxEventsPerUnit` (100, oldest
-  dropped first), `MaxUnits` (256; at the cap a new unit of work keeps nothing) and `IdleTimeout` (2 minutes,
-  after which a trail is discarded — Watch has no signal for the end of a unit of work).
-  `WatchLoggerProcessor.RetroDroppedEventCount` counts what the limits dropped.
-- **The cost** is paid only inside a marked unit of work: each Debug call there is formatted, also when the trail
-  is discarded. An unmarked process pays nothing.
+- **Kept on the unit of work's `Activity`**, so a trail lives exactly as long as its request and is collected
+  with it when the request succeeds — short-lived garbage, never a growing table. Every marked request keeps a
+  trail, at any load. The one limit is `WatchOptions.Retro.MaxEventsPerUnit` (100, oldest dropped first);
+  `WatchLoggerProcessor.RetroDroppedEventCount` counts what it dropped. (`MaxUnits` and `IdleTimeout` are
+  obsolete and ignored since 5.0.2.)
+- **The cost**, measured (`benchmarks/`; a request of 23 Debug calls, all below the switch):
+
+  | Request | Time | Allocated |
+  |---|---:|---:|
+  | Unmarked, 5.0.0 filter | 1.05 µs | 1.23 KB |
+  | Unmarked | 1.37 µs | 1.23 KB |
+  | Marked, succeeds | 11.7 µs | 7.8 KB |
+  | Marked, fails (trail sent) | 31.2 µs | 10.1 KB |
+
+  An unmarked request allocates nothing more, and pays about 10 ns per dropped Debug call for the mark check. A
+  marked request formats each Debug call — about 0.45 µs and 290 bytes each — and that is gen-0 garbage when it
+  succeeds. The failing request includes the background serialization and post of its 24 events.
 - Kept events are Debug, so during an outage or while unbound they are not held for later, as no Debug event is.
   The Error itself is held as before.
 

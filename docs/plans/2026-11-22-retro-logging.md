@@ -177,3 +177,30 @@ critical buffer (Warning and above only). The error itself is held as today. Acc
 - AspNetCore `README.md`: the endpoint opt-in and the enrichment limit.
 - Pondhawk.Logging `README.md` and `CLAUDE.md`: `RetroLogging.Begin()` for non-HTTP units of work.
 - Root `CLAUDE.md`: the marker in the contract list; one line per package.
+
+---
+
+## Addendum — 2026-11-22: the trail moves onto the Activity
+
+5.0.1 shipped §3 as planned: a table of trails by correlation id, capped at `MaxUnits` and swept after
+`IdleTimeout`. Watch has no signal for the end of a unit of work, so the trail of every request that **succeeded**
+stayed until the sweep: two minutes, long enough to reach gen 2 and die there. And finished requests filled the
+table, so at about 2 requests a second to a marked endpoint most new requests kept nothing.
+
+Fix: the trail is a custom property on the marked `Activity` (`Pondhawk.RetroLogging.Trail`, Watch's own, not
+part of the contract). It lives exactly as long as the unit of work and is collected with it. No table, no cap
+on units of work, no sweep timer. `MaxUnits` and `IdleTimeout` stay on `RetroOptions`, `[Obsolete]` and ignored,
+so code that set them still compiles.
+
+Measured with `benchmarks/Pondhawk.Logging.Benchmarks` (BenchmarkDotNet short job; a request of 23 Debug calls
+below the switch):
+
+| Request | 5.0.1 time | 5.0.1 alloc | Fixed time | Fixed alloc |
+|---|---:|---:|---:|---:|
+| Unmarked, 5.0.0 filter | 1.06 µs | 1.23 KB | 1.05 µs | 1.23 KB |
+| Unmarked | 1.26 µs | 1.23 KB | 1.37 µs | 1.23 KB |
+| Marked, succeeds | 11.3 µs | 7.12 KB | 11.7 µs | 7.8 KB |
+| Marked, fails | 14.0 µs | 7.35 KB | 31.2 µs | 10.1 KB |
+
+5.0.1's "fails" looks cheaper only because its table was full: the trail was not kept and not sent. The fixed
+numbers are what a failing request actually costs, its trail's serialization and post included.

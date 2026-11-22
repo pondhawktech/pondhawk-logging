@@ -19,17 +19,20 @@ internal static class RetroContract
     public const string PropertyName = "Pondhawk.RetroLogging";
 
     /// <summary>Whether the current unit of work is marked: this activity or one it was started under.</summary>
-    public static bool IsActive
+    public static bool IsActive => MarkedActivity is not null;
+
+    /// <summary>The <see cref="Activity"/> that carries the mark — the current one or one it was started under — or null.</summary>
+    public static Activity? MarkedActivity
     {
         get
         {
             for (var activity = Activity.Current; activity is not null; activity = activity.Parent)
             {
                 if (activity.GetCustomProperty(PropertyName) is not null)
-                    return true;
+                    return activity;
             }
 
-            return false;
+            return null;
         }
     }
 }

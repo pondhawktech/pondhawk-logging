@@ -4,9 +4,9 @@
 namespace Pondhawk.Logging.Watch;
 
 /// <summary>
-/// The limits on retro logging (<see cref="WatchOptions.Retro"/>): how much of a marked unit of work's dropped Debug
-/// trail is kept, for how many units of work, and for how long. The trail is a bonus, so the limits drop events
-/// rather than hold memory. Values out of range are clamped.
+/// The limits on retro logging (<see cref="WatchOptions.Retro"/>). A marked unit of work's trail is kept on its
+/// <see cref="System.Diagnostics.Activity"/>, so it lives exactly as long as the unit of work; the only limit is its
+/// length. The trail is a bonus, so the limit drops events rather than hold memory.
 /// </summary>
 public class RetroOptions
 {
@@ -16,15 +16,11 @@ public class RetroOptions
     /// </summary>
     public int MaxEventsPerUnit { get; set; } = 100;
 
-    /// <summary>
-    /// Gets or sets how many units of work keep a trail at once. At the cap a new unit of work keeps nothing. Default
-    /// 256; clamped to 1–100,000.
-    /// </summary>
+    /// <summary>Not used: a trail lives on its unit of work's <see cref="System.Diagnostics.Activity"/>, so there is no table to cap.</summary>
+    [Obsolete("Not used since 5.0.2: a trail lives on its unit of work's Activity, so there is no table to cap.")]
     public int MaxUnits { get; set; } = 256;
 
-    /// <summary>
-    /// Gets or sets how long a trail is kept after its last event. Watch has no signal for the end of a unit of work,
-    /// so a trail not added to for this long is discarded. Default 2 minutes; clamped to 1 second–1 hour.
-    /// </summary>
+    /// <summary>Not used: a trail goes with its unit of work's <see cref="System.Diagnostics.Activity"/>, so nothing waits to be swept.</summary>
+    [Obsolete("Not used since 5.0.2: a trail goes with its unit of work's Activity, so nothing waits to be swept.")]
     public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(2);
 }
