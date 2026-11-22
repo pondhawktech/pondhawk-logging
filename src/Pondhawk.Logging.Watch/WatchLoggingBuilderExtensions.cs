@@ -3,6 +3,7 @@
 
 using System.Net.Http;
 using CommunityToolkit.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ZLogger;
@@ -115,12 +116,17 @@ public static class WatchLoggingBuilderExtensions
         // true, so the composite logger's IsEnabled — the one the call site checks before formatting —
         // reflects this filter, giving switch-dropped categories a zero-work short-circuit.
         builder.SetMinimumLevel(LogLevel.Trace);
-        // A probed request passes at every level whatever its switch says. The probe is read only when the
-        // switch would drop the event, so an unprobed process pays nothing for it.
-        builder.AddFilter((category, level) =>
+        // A probed request passes at every level whatever its switch says. A unit of work marked for retro logging
+        // passes at Debug, to Watch only: the processor keeps those events and sends them only if an Error follows.
+        // Each mark is read only when the switch would drop the event, so a process that sets none pays nothing.
+        // One global rule, not one scoped to Watch, so an application's category rules keep the precedence they had.
+        builder.AddFilter((provider, category, level) =>
             string.IsNullOrWhiteSpace(category)
             || level >= switches.Lookup(category).Level
-            || (level < LogLevel.None && ProbeContract.IsActive));
+            || (level < LogLevel.None && ProbeContract.IsActive)
+            || (level == LogLevel.Debug
+                && string.Equals(provider, WatchProviderName, StringComparison.Ordinal)
+                && RetroContract.IsActive));
 
         // The key a probe token is checked against comes with the switches. It goes to the ASP.NET Core
         // diagnostics as a keyed delegate of built-in types, so neither package needs a type from the other.
@@ -128,16 +134,22 @@ public static class WatchLoggingBuilderExtensions
             builder.Services.TryAddKeyedSingleton<Func<(string Domain, ReadOnlyMemory<byte> PublicKey)?>>(
                 ProbeContract.KeyServiceKey, (_, _) => () => watch.CurrentProbeKey);
 
-        builder.AddZLoggerLogProcessor((_, _) =>
-            new WatchLoggerProcessor(
-                httpClient,
-                switches,
-                destination,
-                options.BatchSize,
-                options.FlushInterval,
-                ownsDependencies,
-                options.DefaultTag));
+        builder.Services.AddSingleton<ILoggerProvider>(_ =>
+            new WatchLoggerProvider(
+                new WatchLoggerProcessor(
+                    httpClient,
+                    switches,
+                    destination,
+                    options.BatchSize,
+                    options.FlushInterval,
+                    ownsDependencies,
+                    options.DefaultTag,
+                    options.Retro),
+                new ZLoggerOptions()));
 
         return builder;
     }
+
+    // The name Microsoft.Extensions.Logging passes a filter for the provider: its type's full name.
+    private static readonly string WatchProviderName = typeof(WatchLoggerProvider).FullName!;
 }

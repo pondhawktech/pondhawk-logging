@@ -65,6 +65,10 @@ public sealed class DiagnosticsEnrichmentMiddleware
         // A probe bound to a user starts here, now that the caller is known.
         RequestProbe.Bind(context, _logger, operation.SubjectName);
 
+        // Routing has run by now, so an endpoint that opted into retro logging is known.
+        if (context.GetEndpoint()?.Metadata.GetMetadata<RetroLoggingAttribute>() is not null)
+            RetroContract.Begin();
+
         return _next(context);
     }
 

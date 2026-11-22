@@ -42,8 +42,8 @@ beside them gives each type once, with no CS0433 ambiguity.
 
 - **Its one dependency** is `Microsoft.Extensions.Logging.Abstractions` (8.0 or later).
 - **Keep these values as they are** in a vendored copy, because the providers keep their own copies of them:
-  the `LogPropertyNames` strings, the `PayloadType` numbers, and `DiagnosticProbe`'s `Activity` property and
-  tag.
+  the `LogPropertyNames` strings, the `PayloadType` numbers, and the `Activity` properties and tags of
+  `DiagnosticProbe` and `RetroLogging`.
 - **To drop it**, replace its calls (`EnterMethod`, `LogJson`, `ErrorWithContext`, …) with
   `Microsoft.Extensions.Logging`'s own. The providers need nothing from it; a payload logged as a plain message
   arrives as text.
@@ -80,6 +80,30 @@ outbound call. A provider honours the probe (the Watch provider does) and `Pondh
 checks the token and begins it; application code needs neither, unless it probes work of its own, such as a
 background job. Neither package references this one: they set and read the same `Activity` property
 (`Pondhawk.DiagnosticProbe`) and use the same tag (`Diagnostics`).
+
+## Retro logging
+
+`RetroLogging` marks the current unit of work for retro logging. A provider that honours it (the Watch provider
+does) keeps the Debug events its switch would drop and sends them only if the unit of work logs an Error, so a
+failure arrives with the trail that led to it and a success adds nothing. `RetroLogging.Begin()` marks the
+current `Activity`, as `DiagnosticProbe.Begin()` does. An ASP.NET Core endpoint opts in with `WithRetroLogging()`
+or `[RetroLogging]` (`Pondhawk.Logging.AspNetCore`); other work, such as a background job, calls `Begin()` in its
+own `Activity`:
+
+```csharp
+using var activity = source.StartActivity("ImportBatch");
+RetroLogging.Begin();
+```
+
+It depends on Debug staying cheap at the call site, because a marked unit of work formats each Debug call even
+when the trail is discarded:
+
+- **Kept:** `EnterMethod` entry and exit, `Inspect`, Debug messages, and the titles of `LogJson`, `LogSql`,
+  `LogXml`, `LogYaml` and `LogText` — not their content.
+- **Not kept:** Trace, so `LogObject` at its default level serializes nothing. `LogObject(LogLevel.Debug, …)`
+  does serialize: avoid it in code that is marked.
+- Kept events are sent with the tag `Retro`. The trail is a bonus, not a guarantee: the provider caps it and
+  drops what does not fit.
 
 ## Acquiring loggers
 

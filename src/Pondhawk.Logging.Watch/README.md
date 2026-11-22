@@ -221,6 +221,26 @@ key arrives with the switches; `AddWatch` registers it for the token check as a 
 Core diagnostics need no type from this package. A failed
 poll keeps the last key; a rebind drops it until the new domain's switches arrive.
 
+### Retro logging
+
+A unit of work marked for retro logging — an ASP.NET Core endpoint with `WithRetroLogging()` or `[RetroLogging]`,
+or work that calls `RetroLogging.Begin()` (see
+[`Pondhawk.Logging`](../Pondhawk.Logging/README.md#retro-logging)) — keeps the Debug events its switch would
+drop. They are sent, oldest first and tagged `Retro`, just before the first Error the unit of work logs. A unit of
+work that logs no Error sends nothing extra.
+
+- **Watch only.** The switch filter lets a marked unit of work's Debug through to `WatchLoggerProvider` and to
+  no other provider. Trace is never let through.
+- **Payload content is dropped** from a kept event; the title stays.
+- **Kept per correlation id**, in memory, within `WatchOptions.Retro`'s limits: `MaxEventsPerUnit` (100, oldest
+  dropped first), `MaxUnits` (256; at the cap a new unit of work keeps nothing) and `IdleTimeout` (2 minutes,
+  after which a trail is discarded — Watch has no signal for the end of a unit of work).
+  `WatchLoggerProcessor.RetroDroppedEventCount` counts what the limits dropped.
+- **The cost** is paid only inside a marked unit of work: each Debug call there is formatted, also when the trail
+  is discarded. An unmarked process pays nothing.
+- Kept events are Debug, so during an outage or while unbound they are not held for later, as no Debug event is.
+  The Error itself is held as before.
+
 ### Telling instances apart: the default tag
 
 Several instances often log into one domain — an autoscaling group, a blue/green pair, a rolling deploy.
@@ -237,7 +257,8 @@ builder.Logging.AddWatch("http://localhost:11000/MyApp", o =>
 builder.Logging.AddWatch("http://localhost:11000/MyApp", o => o.DefaultTag = () => "blue");
 ```
 
-- **Order:** an event's tag comes from the probe (`Diagnostics`), then its matching switch, then `DefaultTag`.
+- **Order:** an event's tag comes from the probe (`Diagnostics`) or retro logging (`Retro`), then its matching
+  switch, then `DefaultTag`.
   A switch tag an operator sets on Watch Server hides the default for that category.
 - **When it runs:** the function takes no arguments. It is called once, on the background flush thread, when the
   first batch is sent — never on a logging call, so a slow lookup (EC2 instance metadata) blocks no caller, and
