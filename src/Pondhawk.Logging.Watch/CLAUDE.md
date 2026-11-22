@@ -170,10 +170,15 @@ Debug events its switch would drop, and sends them before its first Error.
   `AddWatch` registers). A provider-scoped rule was rejected: it would outrank the application's category rules
   for Watch, which today take precedence over the switch filter.
 - **The processor**: in `Post`, a Debug event below its switch, not probed, in a marked unit of work goes to
-  `RetroBuffers` (per correlation id, payload content cleared, tag `Retro`), not the channel. An Error or Critical
-  event queues its correlation's trail first.
-- **Limits** (`WatchOptions.Retro`): `MaxEventsPerUnit` 100 (ring), `MaxUnits` 256 (then nothing is kept),
-  `IdleTimeout` 2 min (a timer sweeps). Drops count in `RetroDroppedEventCount`. Nothing in `RetroBuffers` throws.
+  `RetroTrails` (payload content cleared, tag `Retro`), not the channel. The trail is a custom property
+  (`Pondhawk.RetroLogging.Trail`, Watch's own) on the marked `Activity` (`RetroContract.MarkedActivity`), so it is
+  collected with the unit of work. An Error or Critical event queues the marked Activity's trail first.
+- **Limit** (`WatchOptions.Retro`): `MaxEventsPerUnit` 100 (ring). Drops count in `RetroDroppedEventCount`.
+  Nothing in `RetroTrails` throws. 5.0.1 kept trails in a table by correlation id (`MaxUnits` 256, `IdleTimeout`
+  2 min, both now obsolete): finished requests' trails lived to gen 2 and filled the table, so under load most
+  requests kept nothing.
+- **Cost** is measured by `benchmarks/Pondhawk.Logging.Benchmarks` (`RetroLoggingBenchmarks`); the results are in
+  the README.
 - **Trace is never let through**, so `LogObject` at its default level serializes nothing. Kept events are Debug,
   so they are not held through an outage.
 
@@ -272,7 +277,7 @@ src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
   WatchLoggerProvider.cs                # Watch's own provider type (the filter tells Watch apart by it)
-  RetroBuffers.cs                       # Kept Debug trails per correlation id
+  RetroTrails.cs                        # Kept Debug trails, on the marked Activity
   RetroOptions.cs                       # Limits on retro logging
   RetroContract.cs                      # Copy of the retro-logging Activity property and tag
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)

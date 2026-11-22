@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pondhawk.Logging.Watch.Tests" />
+    <InternalsVisibleTo Include="Pondhawk.Logging.Benchmarks" />
     <!-- Its tests register Watch with switches they control (the internal AddWatch). -->
     <InternalsVisibleTo Include="Pondhawk.Logging.Journald.Tests" />
   </ItemGroup>

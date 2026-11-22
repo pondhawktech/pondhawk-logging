@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <ProjectReference Include="..\..\src\Pondhawk.Logging.Watch\Pondhawk.Logging.Watch.csproj" />
+    <!-- Benchmarks measure the API through the provider, as an application uses them; not a package. -->
+    <ProjectReference Include="..\..\src\Pondhawk.Logging\Pondhawk.Logging.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -68,7 +68,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private long _droppedEventCount;
 
     // The Debug trails of units of work marked for retro logging, sent only if an Error follows.
-    private readonly RetroBuffers _retro;
+    private readonly RetroTrails _retro;
 
     /// <summary>Gets or sets the failure threshold before the circuit opens.</summary>
     public int FailureThreshold { get; set; } = 3;
@@ -101,8 +101,8 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     public long DroppedEventCount => Interlocked.Read(ref _droppedEventCount);
 
     /// <summary>
-    /// Gets the number of retro-logging events dropped: by a full trail, by the cap on trails, or with a trail
-    /// discarded for being idle. A trail discarded because its unit of work succeeded is not counted.
+    /// Gets the number of retro-logging events dropped by a full trail (the oldest go first). A trail that goes with
+    /// its unit of work because it succeeded is not counted.
     /// </summary>
     public long RetroDroppedEventCount => _retro.DroppedCount;
 
@@ -182,7 +182,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         _batchSize = batchSize;
         _flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(100);
         _defaultTagFactory = defaultTag;
-        _retro = new RetroBuffers(retro ?? new RetroOptions());
+        _retro = new RetroTrails(retro ?? new RetroOptions());
 
         _channel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions
         {
@@ -224,18 +224,20 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
             // Debug the switch would drop, let through only because the unit of work is marked for retro logging:
             // kept, without its payload content, until an Error in the same unit of work sends it.
-            if (info.LogLevel == LogLevel.Debug && info.LogLevel < sw.Level && !probed && RetroContract.IsActive)
+            // The trail lives on the marked Activity, so it goes with the unit of work when that succeeds.
+            if (info.LogLevel == LogLevel.Debug && info.LogLevel < sw.Level && !probed
+                && RetroContract.MarkedActivity is { } marked)
             {
                 logEvent.Payload = null;
                 logEvent.Type = 0;
                 logEvent.Tag = RetroContract.Tag;
-                _retro.Hold(correlationId, logEvent);
+                _retro.Hold(marked, logEvent);
                 return;
             }
 
-            if (info.LogLevel >= LogLevel.Error)
+            if (info.LogLevel >= LogLevel.Error && RetroContract.MarkedActivity is { } failing)
             {
-                foreach (var kept in _retro.Release(correlationId))
+                foreach (var kept in RetroTrails.Release(failing))
                     _channel.Writer.TryWrite(kept);
             }
 
@@ -573,9 +575,6 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             return;
 
         _channel.Writer.Complete();
-
-        // A trail still kept belongs to a unit of work that logged no Error: nobody asked for it.
-        _retro.Dispose();
 
         try
         {

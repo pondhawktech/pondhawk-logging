@@ -147,6 +147,56 @@ public class RetroLoggingTests
     }
 
     [Fact]
+    public async Task Work_inside_a_child_activity_joins_the_marked_unit_of_works_trail()
+    {
+        var (factory, delivered, _) = Build();
+        var logger = factory.CreateLogger("Orders.Service");
+
+        using (new Activity("request").Start())
+        {
+            RetroLogging.Begin();
+            logger.LogDebug("in the request");
+
+            using (new Activity("query").Start())
+                logger.LogDebug("in the query");
+
+            logger.LogError("boom");
+        }
+
+        (await WaitFor(delivered, 3)).Select(e => e.Title).ShouldBe(["in the request", "in the query", "boom"]);
+
+        factory.Dispose();
+    }
+
+    [Fact]
+    public async Task Units_of_work_that_succeeded_never_crowd_out_one_that_fails()
+    {
+        var (factory, delivered, _) = Build();
+        var logger = factory.CreateLogger("Orders.Service");
+
+        // 5.0.1 kept these trails in a table capped at 256 until an idle timeout, so the failure below kept nothing.
+        for (var i = 0; i < 1000; i++)
+        {
+            using (new Activity("succeeds").Start())
+            {
+                RetroLogging.Begin();
+                logger.LogDebug("quiet step");
+            }
+        }
+
+        using (new Activity("fails").Start())
+        {
+            RetroLogging.Begin();
+            logger.LogDebug("step");
+            logger.LogError("boom");
+        }
+
+        (await WaitFor(delivered, 2)).Select(e => e.Title).ShouldBe(["step", "boom"]);
+
+        factory.Dispose();
+    }
+
+    [Fact]
     public async Task A_probed_unit_of_work_is_sent_live_not_kept()
     {
         var (factory, delivered, _) = Build();
@@ -186,69 +236,59 @@ public class RetroLoggingTests
     }
 }
 
-public class RetroBuffersTests
+public class RetroTrailsTests
 {
     private static LogEvent Event(string title) => new() { Title = title };
 
     [Fact]
-    public void At_the_cap_on_trails_a_new_unit_of_work_keeps_nothing()
+    public void A_trail_is_released_once_and_a_later_event_starts_a_new_one()
     {
-        using var buffers = new RetroBuffers(new RetroOptions { MaxUnits = 1 });
+        var trails = new RetroTrails(new RetroOptions());
+        using var request = new Activity("request").Start();
 
-        buffers.Hold("a", Event("a1"));
-        buffers.Hold("b", Event("b1"));
+        trails.Hold(request, Event("one"));
+        RetroTrails.Release(request).Select(e => e.Title).ShouldBe(["one"]);
+        RetroTrails.Release(request).ShouldBeEmpty();
 
-        buffers.Release("b").ShouldBeEmpty();
-        buffers.Release("a").Select(e => e.Title).ShouldBe(["a1"]);
-        buffers.DroppedCount.ShouldBe(1);
+        trails.Hold(request, Event("two"));
+        RetroTrails.Release(request).Select(e => e.Title).ShouldBe(["two"]);
     }
 
     [Fact]
-    public void Release_frees_a_place_for_another_unit_of_work()
+    public void Each_activity_has_its_own_trail()
     {
-        using var buffers = new RetroBuffers(new RetroOptions { MaxUnits = 1 });
+        var trails = new RetroTrails(new RetroOptions());
+        using var a = new Activity("a").Start();
+        trails.Hold(a, Event("a1"));
+        using var b = new Activity("b").Start();
+        trails.Hold(b, Event("b1"));
 
-        buffers.Hold("a", Event("a1"));
-        buffers.Release("a");
-        buffers.Hold("b", Event("b1"));
-
-        buffers.Release("b").Select(e => e.Title).ShouldBe(["b1"]);
-        buffers.Count.ShouldBe(0);
+        RetroTrails.Release(b).Select(e => e.Title).ShouldBe(["b1"]);
+        RetroTrails.Release(a).Select(e => e.Title).ShouldBe(["a1"]);
     }
 
     [Fact]
-    public void An_idle_trail_is_discarded_and_counted()
+    public void A_trail_is_neither_baggage_nor_a_tag()
     {
-        using var buffers = new RetroBuffers(new RetroOptions { IdleTimeout = TimeSpan.FromSeconds(1) });
+        var trails = new RetroTrails(new RetroOptions());
+        using var request = new Activity("request").Start();
 
-        buffers.Hold("a", Event("a1"));
-        buffers.Hold("a", Event("a2"));
-        buffers.Sweep(Environment.TickCount64 + 60_000);
+        trails.Hold(request, Event("one"));
 
-        buffers.Count.ShouldBe(0);
-        buffers.Release("a").ShouldBeEmpty();
-        buffers.DroppedCount.ShouldBe(2);
-    }
-
-    [Fact]
-    public void A_recent_trail_survives_the_sweep()
-    {
-        using var buffers = new RetroBuffers(new RetroOptions());
-
-        buffers.Hold("a", Event("a1"));
-        buffers.Sweep(Environment.TickCount64);
-
-        buffers.Release("a").Select(e => e.Title).ShouldBe(["a1"]);
+        request.Baggage.ShouldBeEmpty();
+        request.TagObjects.ShouldBeEmpty();
     }
 
     [Fact]
     public void Out_of_range_limits_are_clamped()
     {
-        using var buffers = new RetroBuffers(new RetroOptions { MaxEventsPerUnit = 0, MaxUnits = -5, IdleTimeout = TimeSpan.Zero });
+        var trails = new RetroTrails(new RetroOptions { MaxEventsPerUnit = 0 });
+        using var request = new Activity("request").Start();
 
-        buffers.Hold("a", Event("a1"));
-        buffers.Hold("a", Event("a2"));
+        trails.Hold(request, Event("a1"));
+        trails.Hold(request, Event("a2"));
 
-        buffers.Release("a").Select(e => e.Title).ShouldBe(["a2"]);
+        RetroTrails.Release(request).Select(e => e.Title).ShouldBe(["a2"]);
+        trails.DroppedCount.ShouldBe(1);
     }
 }
