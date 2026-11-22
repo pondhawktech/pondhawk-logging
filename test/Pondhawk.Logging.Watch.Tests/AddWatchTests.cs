@@ -159,4 +159,110 @@ public class AddWatchTests
 
         logger.IsEnabled(LogLevel.Debug).ShouldBeTrue();    // takes effect with no factory rebuild
     }
+
+    [Fact]
+    public void SwitchFilter_PassesDebug_ToWatchOnly_ForAUnitOfWorkMarkedForRetroLogging()
+    {
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.Warning);
+        var other = new LevelCapture();
+
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.AddWatch(CreateClient(new MockHttpHandler()), switches, new WatchDestination("http://localhost/D"), new WatchOptions(), ownsDependencies: false);
+            b.AddProvider(other);
+        });
+        var logger = factory.CreateLogger("Orders.Service");
+
+        logger.IsEnabled(LogLevel.Debug).ShouldBeFalse();
+
+        using (new Activity("marked request").Start())
+        {
+            RetroLogging.Begin();
+
+            logger.IsEnabled(LogLevel.Debug).ShouldBeTrue();
+            logger.IsEnabled(LogLevel.Trace).ShouldBeFalse();
+
+            logger.LogDebug("kept by Watch only");
+        }
+
+        other.Levels.ShouldBeEmpty();
+
+        using (new Activity("next request").Start())
+            logger.IsEnabled(LogLevel.Debug).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AddWatch_SendsTheRetroTrail_OnlyWhenTheUnitOfWorkLogsAnError()
+    {
+        var delivered = new List<LogEvent>();
+        var handler = new MockHttpHandler();
+        handler.SetHandler(async (req, ct) =>
+        {
+            var batch = await LogEventBatchSerializer.FromStream(await req.Content.ReadAsStreamAsync(ct));
+            if (batch is not null)
+            {
+                lock (delivered)
+                    delivered.AddRange(batch.Events);
+            }
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+        });
+
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.Warning);
+        var options = new WatchOptions { FlushInterval = TimeSpan.FromMilliseconds(20) };
+
+        using (var factory = LoggerFactory.Create(b =>
+            b.AddWatch(CreateClient(handler), switches, new WatchDestination("http://localhost/D"), options, ownsDependencies: false)))
+        {
+            var logger = factory.CreateLogger("Orders.Service");
+
+            using (new Activity("succeeds").Start())
+            {
+                RetroLogging.Begin();
+                logger.LogDebug("quiet step");
+            }
+
+            using (new Activity("fails").Start())
+            {
+                RetroLogging.Begin();
+                logger.LogDebug("step one");
+                logger.LogDebug("step two");
+                logger.LogObject(new { Secret = "Trace is never kept" });
+                logger.LogError("boom");
+            }
+        }
+
+        lock (delivered)
+        {
+            delivered.Select(e => e.Title).ShouldBe(["step one", "step two", "boom"]);
+            delivered[0].Tag.ShouldBe("Retro");
+            delivered[2].Tag.ShouldBeEmpty();
+        }
+    }
+
+    private sealed class LevelCapture : ILoggerProvider
+    {
+        public List<LogLevel> Levels { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new Logger(this);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Logger(LevelCapture owner) : ILogger
+        {
+            public IDisposable BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+            {
+                lock (owner.Levels)
+                    owner.Levels.Add(logLevel);
+            }
+        }
+    }
 }

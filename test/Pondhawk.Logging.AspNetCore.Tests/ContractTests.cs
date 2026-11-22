@@ -32,6 +32,23 @@ public class ContractTests
     }
 
     [Fact]
+    public void ARetroMarkTheseBegin_IsSeenByTheApi()
+    {
+        using (new Activity("marked").Start())
+        {
+            RetroLogging.IsActive.ShouldBeFalse();
+            RetroContract.Begin().ShouldBeTrue();
+            RetroLogging.IsActive.ShouldBeTrue();
+        }
+
+        RetroLogging.IsActive.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void WithNoActivity_NoRetroMarkBegins() =>
+        RetroContract.Begin().ShouldBeFalse();
+
+    [Fact]
     public void WithNoActivity_NoProbeBegins() =>
         ProbeContract.Begin().ShouldBeFalse();
 

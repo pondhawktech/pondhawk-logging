@@ -263,6 +263,8 @@ it reads, with a test against these — so **a name or a `PayloadType` number ne
 src/Pondhawk.Logging/
   LoggingExtensions.cs                  # EnterMethod, Inspect, LogObject, LogJson, etc.
   MethodLogger.cs                       # ILogger decorator behind EnterMethod
+  DiagnosticProbe.cs                    # Marks a unit of work as probed (Activity property)
+  RetroLogging.cs                       # Marks a unit of work for retro logging (Activity property)
   LogState.cs                           # log state the API attaches (title + control properties)
   LogPropertyNames.cs                   # Public Pondhawk.* property-name contract
   PayloadType.cs                        # None, Json, Sql, Xml, Text, Yaml

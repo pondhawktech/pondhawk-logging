@@ -261,6 +261,26 @@ nor the API; a DI container without keyed services gets no key either. `options.
 off. Like the correlation id, the probe attaches to the request's `Activity`; it is never sent on to the
 services the request calls.
 
+## Retro logging
+
+An endpoint that does important work can opt into **retro logging**: each request to it keeps the Debug events
+its switch would drop, and sends them only if the request logs an Error — so the failure arrives with how far the
+request got.
+
+```csharp
+app.MapPost("/orders", PlaceOrder).WithRetroLogging();   // minimal APIs
+
+[RetroLogging]                                            // a controller or an action
+public IActionResult Refund(int id) { … }
+```
+
+`UseDiagnosticsEnrichment` marks the request's `Activity` when its endpoint carries `RetroLoggingAttribute`, so
+it must run after routing (it already runs after authentication). Events logged before it — the monitor's
+"Begin" line, routing, authentication — are not kept. The trail is sent by any Error inside the request: an
+exception handler's, the application's, or the monitor's End line with `EndLevelByOutcome` on. A provider that
+honours the mark does the rest (the Watch provider does; see its README). Like the probe, the mark is a custom
+property (`Pondhawk.RetroLogging`), so this package references neither the provider nor the API.
+
 ## The category
 
 Everything here is logged as `Pondhawk.Diagnostics.Http` — deliberately under no application's namespace, so a

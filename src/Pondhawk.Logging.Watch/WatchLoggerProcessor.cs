@@ -67,6 +67,9 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private readonly ConcurrentQueue<LogEvent> _criticalBuffer = new();
     private long _droppedEventCount;
 
+    // The Debug trails of units of work marked for retro logging, sent only if an Error follows.
+    private readonly RetroBuffers _retro;
+
     /// <summary>Gets or sets the failure threshold before the circuit opens.</summary>
     public int FailureThreshold { get; set; } = 3;
 
@@ -96,6 +99,12 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
 
     /// <summary>Gets the total number of events dropped due to buffer overflow.</summary>
     public long DroppedEventCount => Interlocked.Read(ref _droppedEventCount);
+
+    /// <summary>
+    /// Gets the number of retro-logging events dropped: by a full trail, by the cap on trails, or with a trail
+    /// discarded for being idle. A trail discarded because its unit of work succeeded is not counted.
+    /// </summary>
+    public long RetroDroppedEventCount => _retro.DroppedCount;
 
     /// <summary>
     /// Initializes a processor delivering to a fixed domain, posting to the
@@ -142,13 +151,14 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         int batchSize = 100,
         TimeSpan? flushInterval = null,
         bool ownsDependencies = false)
-        : this(client, switchSource, destination, batchSize, flushInterval, ownsDependencies, defaultTag: null)
+        : this(client, switchSource, destination, batchSize, flushInterval, ownsDependencies, defaultTag: null, retro: null)
     {
     }
 
     /// <summary>
     /// Initializes a processor as the public constructor does, plus the <see cref="WatchOptions.DefaultTag"/>
-    /// function <c>AddWatch</c> passes. Internal so the default tag adds nothing to the public surface.
+    /// function and the <see cref="WatchOptions.Retro"/> limits <c>AddWatch</c> passes. Internal so neither adds to
+    /// the public surface; null limits are the defaults.
     /// </summary>
     internal WatchLoggerProcessor(
         HttpClient client,
@@ -157,7 +167,8 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         int batchSize,
         TimeSpan? flushInterval,
         bool ownsDependencies,
-        Func<string?>? defaultTag)
+        Func<string?>? defaultTag,
+        RetroOptions? retro = null)
     {
         Guard.IsNotNull(client);
         Guard.IsNotNull(switchSource);
@@ -171,6 +182,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         _batchSize = batchSize;
         _flushInterval = flushInterval ?? TimeSpan.FromMilliseconds(100);
         _defaultTagFactory = defaultTag;
+        _retro = new RetroBuffers(retro ?? new RetroOptions());
 
         _channel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions
         {
@@ -200,10 +212,33 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
                 return;
 
             var correlationId = GetCorrelationId();
-            var logEvent = ConvertEntry(log, correlationId);
+            var info = log.LogInfo;
+            var category = string.IsNullOrEmpty(info.Category.Name) ? "ZLogger" : info.Category.Name;
+            var sw = _switchSource.Lookup(category);
+            var probed = ProbeContract.IsActive;
+
+            var logEvent = ConvertEntry(log, category, sw, probed, correlationId);
             var operation = Ambient<IOperationContext>.Current;
             logEvent.Subject = operation.SubjectName ?? string.Empty;
             logEvent.Tenant = operation.Tenant ?? string.Empty;
+
+            // Debug the switch would drop, let through only because the unit of work is marked for retro logging:
+            // kept, without its payload content, until an Error in the same unit of work sends it.
+            if (info.LogLevel == LogLevel.Debug && info.LogLevel < sw.Level && !probed && RetroContract.IsActive)
+            {
+                logEvent.Payload = null;
+                logEvent.Type = 0;
+                logEvent.Tag = RetroContract.Tag;
+                _retro.Hold(correlationId, logEvent);
+                return;
+            }
+
+            if (info.LogLevel >= LogLevel.Error)
+            {
+                foreach (var kept in _retro.Release(correlationId))
+                    _channel.Writer.TryWrite(kept);
+            }
+
             _channel.Writer.TryWrite(logEvent);
         }
         catch
@@ -216,18 +251,16 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private LogEvent ConvertEntry(IZLoggerEntry entry, string correlationId)
+    private static LogEvent ConvertEntry(IZLoggerEntry entry, string category, Switch sw, bool probed, string correlationId)
     {
         var info = entry.LogInfo;
-        var category = string.IsNullOrEmpty(info.Category.Name) ? "ZLogger" : info.Category.Name;
-        var sw = _switchSource.Lookup(category);
 
         var logEvent = new LogEvent
         {
             Category = category,
             Level = (int)info.LogLevel,
             Color = sw.Color.ToArgb(),
-            Tag = ProbeContract.IsActive ? ProbeContract.Tag : sw.Tag,
+            Tag = probed ? ProbeContract.Tag : sw.Tag,
             Title = entry.ToString(),
             CorrelationId = correlationId,
             Occurred = info.Timestamp.Utc.UtcDateTime,
@@ -540,6 +573,9 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             return;
 
         _channel.Writer.Complete();
+
+        // A trail still kept belongs to a unit of work that logged no Error: nobody asked for it.
+        _retro.Dispose();
 
         try
         {

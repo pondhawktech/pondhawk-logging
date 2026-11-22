@@ -64,4 +64,11 @@ public class WatchOptions
     /// empty for the life of the process; it is not called again.
     /// </remarks>
     public Func<string?>? DefaultTag { get; set; }
+
+    /// <summary>
+    /// Gets the limits on retro logging: the Debug trail kept for a unit of work marked for it (an endpoint with
+    /// <c>WithRetroLogging()</c>, or <c>RetroLogging.Begin()</c>) and sent only if that unit of work logs an Error.
+    /// Nothing is kept for a unit of work that is not marked.
+    /// </summary>
+    public RetroOptions Retro { get; } = new();
 }

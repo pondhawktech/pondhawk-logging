@@ -47,6 +47,23 @@ public class ContractTests
     }
 
     [Fact]
+    public void ARetroMarkTheApiBegins_IsSeen()
+    {
+        RetroContract.Tag.ShouldBe(RetroLogging.Tag);
+
+        using (new Activity("marked").Start())
+        {
+            RetroContract.IsActive.ShouldBeFalse();
+            RetroLogging.Begin().ShouldBeTrue();
+
+            using (new Activity("inner").Start())
+                RetroContract.IsActive.ShouldBeTrue();
+        }
+
+        RetroContract.IsActive.ShouldBeFalse();
+    }
+
+    [Fact]
     public void TheProvider_DoesNotReferencePondhawkLogging() =>
         typeof(WatchLoggerProcessor).Assembly.GetReferencedAssemblies()
             .Select(a => a.Name)

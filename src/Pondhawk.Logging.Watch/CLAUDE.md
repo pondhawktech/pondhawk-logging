@@ -159,6 +159,24 @@ global filter, can. Registering both providers with the switch table at Debug me
 still formats: Watch keeps the event and the console discards it. Worth knowing before assuming a console
 floor buys back formatting cost.
 
+## Retro logging
+
+A unit of work marked for retro logging (`RetroContract.IsActive`: the `Activity` property `Pondhawk.RetroLogging`,
+set by `RetroLogging.Begin()` or by the AspNetCore enrichment for an endpoint with `WithRetroLogging()`) keeps the
+Debug events its switch would drop, and sends them before its first Error.
+
+- **The filter** is the same global rule, taking the provider name: Debug passes for a marked unit of work only
+  when the provider is `WatchLoggerProvider` (Watch's own subclass of `ZLoggerLogProcessorLoggerProvider`, which
+  `AddWatch` registers). A provider-scoped rule was rejected: it would outrank the application's category rules
+  for Watch, which today take precedence over the switch filter.
+- **The processor**: in `Post`, a Debug event below its switch, not probed, in a marked unit of work goes to
+  `RetroBuffers` (per correlation id, payload content cleared, tag `Retro`), not the channel. An Error or Critical
+  event queues its correlation's trail first.
+- **Limits** (`WatchOptions.Retro`): `MaxEventsPerUnit` 100 (ring), `MaxUnits` 256 (then nothing is kept),
+  `IdleTimeout` 2 min (a timer sweeps). Drops count in `RetroDroppedEventCount`. Nothing in `RetroBuffers` throws.
+- **Trace is never let through**, so `LogObject` at its default level serializes nothing. Kept events are Debug,
+  so they are not held through an outage.
+
 ## Extension Method Reference
 
 The extension methods (`EnterMethod`, `Inspect`, `LogObject`, `LogJson`/`LogSql`/`LogXml`/`LogYaml`/`LogText`)
@@ -253,6 +271,10 @@ logger.LogDebug($"User {userId} logged in");
 src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
+  WatchLoggerProvider.cs                # Watch's own provider type (the filter tells Watch apart by it)
+  RetroBuffers.cs                       # Kept Debug trails per correlation id
+  RetroOptions.cs                       # Limits on retro logging
+  RetroContract.cs                      # Copy of the retro-logging Activity property and tag
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)
   WatchDestination.cs                   # The server + domain delivered to; rebindable, or initially unbound
   WatchOptions.cs                       # Options for AddWatch
