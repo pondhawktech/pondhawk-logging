@@ -5,7 +5,8 @@ obj/
 riderModule.iml
 /_ReSharper.Caches/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 nul
 **/TestResults/
 # Winston transport (npm)
