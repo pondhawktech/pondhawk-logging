@@ -15,7 +15,8 @@ namespace Pondhawk.Logging.Benchmarks;
 /// The cost of retro logging per request. Each benchmark runs one simulated request in its own
 /// <see cref="Activity"/>: a method trace, ten Debug messages, ten <c>Inspect</c> calls and a SQL payload — 23 Debug
 /// events, all below the switch (Warning). <see cref="Unmarked_Baseline"/> uses the switch filter as 5.0.0 had it,
-/// with no retro clause.
+/// with no retro clause. "Marked" marks the request in code; "Switch Retro" marks nothing, its switch has
+/// <see cref="Switch.Retro"/>. A request that fails sends one event, its trail in the payload.
 /// </summary>
 /// <remarks>
 /// Allocations include the background flush thread (BenchmarkDotNet counts the whole process), so a request that
@@ -28,8 +29,10 @@ public class RetroLoggingBenchmarks
 
     private ILoggerFactory _baselineFactory = null!;
     private ILoggerFactory _factory = null!;
+    private ILoggerFactory _retroFactory = null!;
     private ILogger _baseline = null!;
     private ILogger _logger = null!;
+    private ILogger _retroLogger = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -51,6 +54,12 @@ public class RetroLoggingBenchmarks
         _factory = LoggerFactory.Create(b =>
             b.AddWatch(Client(), Switches(), Destination(), new WatchOptions(), ownsDependencies: true));
         _logger = _factory.CreateLogger("Orders.Service");
+
+        var retroSwitches = Switches();
+        retroSwitches.WhenMatched("Orders", "", LogLevel.Warning, System.Drawing.Color.White, retro: true);
+        _retroFactory = LoggerFactory.Create(b =>
+            b.AddWatch(Client(), retroSwitches, Destination(), new WatchOptions(), ownsDependencies: true));
+        _retroLogger = _retroFactory.CreateLogger("Orders.Service");
     }
 
     [GlobalCleanup]
@@ -58,6 +67,7 @@ public class RetroLoggingBenchmarks
     {
         _baselineFactory.Dispose();
         _factory.Dispose();
+        _retroFactory.Dispose();
     }
 
     [Benchmark(Baseline = true, Description = "Unmarked, 5.0.0 filter")]
@@ -71,6 +81,12 @@ public class RetroLoggingBenchmarks
 
     [Benchmark(Description = "Marked, fails")]
     public void Marked_Fails() => Request(_logger, marked: true, fails: true);
+
+    [Benchmark(Description = "Switch Retro, succeeds")]
+    public void SwitchRetro_Succeeds() => Request(_retroLogger, marked: false, fails: false);
+
+    [Benchmark(Description = "Switch Retro, fails")]
+    public void SwitchRetro_Fails() => Request(_retroLogger, marked: false, fails: true);
 
     private static void Request(ILogger logger, bool marked, bool fails)
     {

@@ -12,9 +12,6 @@ namespace Pondhawk.Logging.Watch;
 /// </summary>
 internal static class RetroContract
 {
-    /// <summary>The tag a kept event is given when it is sent.</summary>
-    public const string Tag = "Retro";
-
     /// <summary>The <see cref="Activity"/> custom property that marks a unit of work for retro logging.</summary>
     public const string PropertyName = "Pondhawk.RetroLogging";
 

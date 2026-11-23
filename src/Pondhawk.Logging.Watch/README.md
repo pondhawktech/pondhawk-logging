@@ -223,34 +223,69 @@ poll keeps the last key; a rebind drops it until the new domain's switches arriv
 
 ### Retro logging
 
-A unit of work marked for retro logging — an ASP.NET Core endpoint with `WithRetroLogging()` or `[RetroLogging]`,
-or work that calls `RetroLogging.Begin()` (see
-[`Pondhawk.Logging`](../Pondhawk.Logging/README.md#retro-logging)) — keeps the Debug events its switch would
-drop. They are sent, oldest first and tagged `Retro`, just before the first Error the unit of work logs. A unit of
-work that logs no Error sends nothing extra.
+Retro logging keeps the Debug lines a switch drops, and attaches the last of them to the next Error or Critical in
+the same unit of work. The developer gets the steps that led to a failure next to its exception. A unit of work that
+logs no Error sends nothing extra. Two things turn it on:
 
-- **Watch only.** The switch filter lets a marked unit of work's Debug through to `WatchLoggerProvider` and to
-  no other provider. Trace is never let through.
-- **Payload content is dropped** from a kept event; the title stays.
+- **A code mark** for a unit of work: an ASP.NET Core endpoint with `WithRetroLogging()` or `[RetroLogging]`, or
+  work that calls `RetroLogging.Begin()` (see [`Pondhawk.Logging`](../Pondhawk.Logging/README.md#retro-logging)).
+  Every category the unit of work logs through is trailed.
+- **A switch with `Retro`**, set on Watch Server (switch editor, REST API, MCP `set_switch`). Its categories are
+  trailed in any unit of work, with no release. The level is unchanged.
+
+The trail goes in the error's payload, in the slot `ErrorWithContext` shares with the exception:
+
+```text
+--- Trail (5 lines) ---------------------------------
++0.000s  OrderService  Entering PlaceOrder
++0.001s  OrderService    subtotal = 30
++0.022s  Repository      Query
++0.031s  Repository      Exiting Load (8.94ms)
++0.044s  OrderService    Step 3
+
+--- Exception ---------------------------------------
+System.InvalidOperationException: …
+```
+
+Each line: the offset from the first line, the category's last segment, and the message indented two spaces per
+`EnterMethod` depth. The header says how many lines, and how many the ring dropped.
+
+| The Error carries | Payload |
+|---|---|
+| an exception | Trail, Exception |
+| an exception and a context | Context, Trail, Exception |
+| a context only | Context, Trail (text; JSON without a trail) |
+| neither | Trail |
+| its own payload (`LogJson(LogLevel.Error, …)`) | its own payload; the trail is discarded |
+
+- **Watch only.** The switch filter lets Debug through to `WatchLoggerProvider` and to no other provider. Trace is
+  never let through. Nothing is trailed for a category whose switch is `None`, code marks included, so an inactive
+  domain turns retro logging off.
+- **Which `Activity` holds the trail:** the marked one; otherwise, for a switch with `Retro`, the outermost
+  `Activity` of the process — the request, not a child span such as an outgoing call. With no `Activity`, nothing
+  is trailed.
+- **Payload content is dropped** from a trail line; the title stays.
+- **Each Error carries the lines since the previous one.** The trail is cleared when it is attached.
 - **Kept on the unit of work's `Activity`**, so a trail lives exactly as long as its request and is collected
-  with it when the request succeeds — short-lived garbage, never a growing table. Every marked request keeps a
-  trail, at any load. The one limit is `WatchOptions.Retro.MaxEventsPerUnit` (100, oldest dropped first);
-  `WatchLoggerProcessor.RetroDroppedEventCount` counts what it dropped. (`MaxUnits` and `IdleTimeout` are
-  obsolete and ignored since 5.0.2.)
+  with it when the request succeeds. The one limit is `WatchOptions.Retro.MaxEventsPerUnit` (20 lines, oldest
+  dropped first; 100 before 5.1); `WatchLoggerProcessor.RetroDroppedEventCount` counts what it dropped. Each line
+  is cut at 500 characters. (`MaxUnits` and `IdleTimeout` are obsolete and ignored since 5.0.2.)
 - **The cost**, measured (`benchmarks/`; a request of 23 Debug calls, all below the switch):
 
   | Request | Time | Allocated |
   |---|---:|---:|
-  | Unmarked, 5.0.0 filter | 1.05 µs | 1.23 KB |
-  | Unmarked | 1.37 µs | 1.23 KB |
-  | Marked, succeeds | 11.7 µs | 7.8 KB |
-  | Marked, fails (trail sent) | 31.2 µs | 10.1 KB |
+  | Not trailed, 5.0.0 filter | 0.68 µs | 0.98 KB |
+  | Not trailed | 0.59 µs | 0.98 KB |
+  | Marked, succeeds | 6.6 µs | 7.3 KB |
+  | Marked, fails (trail sent) | 10.1 µs | 12.5 KB |
+  | Switch `Retro`, succeeds | 6.8 µs | 7.3 KB |
+  | Switch `Retro`, fails (trail sent) | 10.5 µs | 12.6 KB |
 
-  An unmarked request allocates nothing more, and pays about 10 ns per dropped Debug call for the mark check. A
-  marked request formats each Debug call — about 0.45 µs and 290 bytes each — and that is gen-0 garbage when it
-  succeeds. The failing request includes the background serialization and post of its 24 events.
-- Kept events are Debug, so during an outage or while unbound they are not held for later, as no Debug event is.
-  The Error itself is held as before.
+  A request that is not trailed pays nothing measurable for the checks. A trailed request formats
+  each Debug call, and that is gen-0 garbage when it succeeds. A failing request sends one event, its trail in the
+  payload; its numbers include the background serialization and post. 5.0.2 sent the trail as up to 100 separate
+  events tagged `Retro`: 31.2 µs and 10.1 KB for the failing request.
+- The Error is held during an outage or while unbound, with its trail, as before.
 
 ### Telling instances apart: the default tag
 
@@ -268,8 +303,7 @@ builder.Logging.AddWatch("http://localhost:11000/MyApp", o =>
 builder.Logging.AddWatch("http://localhost:11000/MyApp", o => o.DefaultTag = () => "blue");
 ```
 
-- **Order:** an event's tag comes from the probe (`Diagnostics`) or retro logging (`Retro`), then its matching
-  switch, then `DefaultTag`.
+- **Order:** an event's tag comes from the probe (`Diagnostics`), then its matching switch, then `DefaultTag`.
   A switch tag an operator sets on Watch Server hides the default for that category.
 - **When it runs:** the function takes no arguments. It is called once, on the background flush thread, when the
   first batch is sent — never on a logging call, so a slow lookup (EC2 instance metadata) blocks no caller, and

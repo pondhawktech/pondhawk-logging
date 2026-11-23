@@ -48,18 +48,33 @@ public class SwitchSourceTests
     }
 
     [Fact]
-    public void LevelFor_AnswersAsLookup_AndFollowsUpdates()
+    public void GateFor_AnswersAsLookup_AndFollowsUpdates()
     {
         var source = new SwitchSource();
         source.WhenNotMatched(LogLevel.Warning);
 
-        source.LevelFor("A.B").ShouldBe(LogLevel.Warning);
+        source.GateFor("A.B").ShouldBe(new SwitchGate(LogLevel.Warning, Retro: false));
 
         source.WhenMatched("A", LogLevel.Trace, Color.White);
-        source.LevelFor("A.B").ShouldBe(LogLevel.Trace);
+        source.GateFor("A.B").ShouldBe(new SwitchGate(LogLevel.Trace, Retro: false));
+
+        source.WhenMatched("A", "", LogLevel.Warning, Color.White, retro: true);
+        source.GateFor("A.B").ShouldBe(new SwitchGate(LogLevel.Warning, Retro: true));
 
         source.Update([]);
-        source.LevelFor("A.B").ShouldBe(LogLevel.Warning);
+        source.GateFor("A.B").ShouldBe(new SwitchGate(LogLevel.Warning, Retro: false));
+    }
+
+    [Fact]
+    public void Retro_IsKept_WhenAnotherSwitchIsAdded_AndInTheCurrentDefs()
+    {
+        var source = new SwitchSource();
+        source.WhenMatched("A", "", LogLevel.Warning, Color.White, retro: true);
+        source.WhenMatched("B", LogLevel.Debug, Color.White);
+
+        source.Lookup("A.X").Retro.ShouldBeTrue();
+        source.Lookup("B.X").Retro.ShouldBeFalse();
+        source.CurrentSwitchDefs.Single(d => d.Pattern == "A").Retro.ShouldBeTrue();
     }
 
     // --- WhenNotMatched ---

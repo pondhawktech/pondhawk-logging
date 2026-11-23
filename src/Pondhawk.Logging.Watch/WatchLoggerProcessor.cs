@@ -67,7 +67,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     private readonly ConcurrentQueue<LogEvent> _criticalBuffer = new();
     private long _droppedEventCount;
 
-    // The Debug trails of units of work marked for retro logging, sent only if an Error follows.
+    // The Debug trails of units of work for retro logging, sent in an Error's payload only if one follows.
     private readonly RetroTrails _retro;
 
     /// <summary>Gets or sets the failure threshold before the circuit opens.</summary>
@@ -101,7 +101,7 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
     public long DroppedEventCount => Interlocked.Read(ref _droppedEventCount);
 
     /// <summary>
-    /// Gets the number of retro-logging events dropped by a full trail (the oldest go first). A trail that goes with
+    /// Gets the number of retro-logging lines dropped by a full trail (the oldest go first). A trail that goes with
     /// its unit of work because it succeeded is not counted.
     /// </summary>
     public long RetroDroppedEventCount => _retro.DroppedCount;
@@ -211,35 +211,30 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             if (Volatile.Read(ref _disposed) != 0)
                 return;
 
-            var correlationId = GetCorrelationId();
             var info = log.LogInfo;
             var category = string.IsNullOrEmpty(info.Category.Name) ? "ZLogger" : info.Category.Name;
             var sw = _switchSource.Lookup(category);
             var probed = ProbeContract.IsActive;
 
-            var logEvent = ConvertEntry(log, category, sw, probed, correlationId);
-            var operation = Ambient<IOperationContext>.Current;
-            logEvent.Subject = operation.SubjectName ?? string.Empty;
-            logEvent.Tenant = operation.Tenant ?? string.Empty;
-
-            // Debug the switch would drop, let through only because the unit of work is marked for retro logging:
-            // kept, without its payload content, until an Error in the same unit of work sends it.
-            // The trail lives on the marked Activity, so it goes with the unit of work when that succeeds.
-            if (info.LogLevel == LogLevel.Debug && info.LogLevel < sw.Level && !probed
-                && RetroContract.MarkedActivity is { } marked)
+            // Debug the switch would drop, let through only for retro logging: kept as a trail line, not sent, until
+            // an Error in the same unit of work carries the last lines. The trail lives on the marked Activity, else
+            // (for a switch with Retro) on the outermost one, so it goes with the unit of work when that succeeds.
+            // Never at None. With no holder the event is not retro logging's (the processor used without the switch
+            // filter, or the switch changed after IsEnabled), and is sent as it always was.
+            if (info.LogLevel == LogLevel.Debug && info.LogLevel < sw.Level && !probed && sw.Level != LogLevel.None
+                && (RetroContract.MarkedActivity ?? (sw.Retro ? RetroTrails.Outermost(Activity.Current) : null)) is { } holder)
             {
-                logEvent.Payload = null;
-                logEvent.Type = 0;
-                logEvent.Tag = RetroContract.Tag;
-                _retro.Hold(marked, logEvent);
+                _retro.Hold(holder, TrailLineOf(log, category));
                 return;
             }
 
-            if (info.LogLevel >= LogLevel.Error && RetroContract.MarkedActivity is { } failing)
-            {
-                foreach (var kept in RetroTrails.Release(failing))
-                    _channel.Writer.TryWrite(kept);
-            }
+            var trail = info.LogLevel >= LogLevel.Error ? ReleaseTrail() : null;
+
+            var correlationId = GetCorrelationId();
+            var logEvent = ConvertEntry(log, category, sw, probed, correlationId, trail);
+            var operation = Ambient<IOperationContext>.Current;
+            logEvent.Subject = operation.SubjectName ?? string.Empty;
+            logEvent.Tenant = operation.Tenant ?? string.Empty;
 
             _channel.Writer.TryWrite(logEvent);
         }
@@ -253,7 +248,39 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
         }
     }
 
-    private static LogEvent ConvertEntry(IZLoggerEntry entry, string category, Switch sw, bool probed, string correlationId)
+    // The trail of the failing unit of work: on its mark, and on its outermost Activity when a switch with Retro put
+    // lines there before (or without) a mark. Null when there is none.
+    private static ReleasedTrail? ReleaseTrail()
+    {
+        var marked = RetroContract.MarkedActivity;
+        var outermost = RetroTrails.Outermost(Activity.Current);
+
+        var trail = marked is null ? ReleasedTrail.Empty : RetroTrails.Release(marked);
+        if (outermost is not null && !ReferenceEquals(outermost, marked))
+            trail = trail.Merge(RetroTrails.Release(outermost));
+
+        return trail.Lines.Count == 0 ? null : trail;
+    }
+
+    // A kept Debug event as its trail line: the message or payload title, never the payload content.
+    private static TrailLine TrailLineOf(IZLoggerEntry entry, string category)
+    {
+        var nesting = 0;
+        for (var i = 0; i < entry.ParameterCount; i++)
+        {
+            if (string.Equals(entry.GetParameterKeyAsString(i), LogStateContract.Nesting, StringComparison.Ordinal)
+                && entry.GetParameterValue(i) is int delta)
+            {
+                nesting = delta;
+                break;
+            }
+        }
+
+        return new TrailLine(Stopwatch.GetTimestamp(), RetroTrails.LastSegment(category), nesting, RetroTrails.Cap(entry.ToString()));
+    }
+
+    private static LogEvent ConvertEntry(IZLoggerEntry entry, string category, Switch sw, bool probed, string correlationId,
+        ReleasedTrail? trail = null)
     {
         var info = entry.LogInfo;
 
@@ -292,37 +319,64 @@ public sealed class WatchLoggerProcessor : IAsyncLogProcessor
             }
         }
 
-        // If no explicit payload was attached but the event carries an exception, transmit its full detail —
-        // preceded by the context object when ErrorWithContext attached one. The wire model carries a single
-        // payload slot, so the two share it rather than one displacing the other.
-        if (logEvent.Payload is null && info.Exception is not null)
-        {
-            var exception = info.Exception;
-            logEvent.ErrorType = exception.GetType().FullName ?? exception.GetType().Name;
-            logEvent.Type = LogStateContract.TextPayload;
-            logEvent.Payload = errorContext is null
-                ? exception.ToString()
-                : ComposeErrorPayload(errorContext, exception);
-        }
-        else if (logEvent.Payload is null && errorContext is not null)
-        {
-            // Context without an exception: nothing to interleave it with, so send it as the JSON it is.
-            logEvent.Type = LogStateContract.JsonPayload;
-            logEvent.Payload = errorContext;
-        }
+        if (logEvent.Payload is null)
+            AttachDetail(logEvent, info.Exception, errorContext, trail);
 
         return logEvent;
     }
 
-    private static string ComposeErrorPayload(string errorContext, Exception exception)
+    // An event with no payload of its own carries its detail in the single payload slot, in this order: the context
+    // object ErrorWithContext attached, the retro trail, the exception. (One with its own payload keeps it, and its
+    // trail is discarded.)
+    private static void AttachDetail(LogEvent logEvent, Exception? exception, string? errorContext, ReleasedTrail? trail)
     {
-        var builder = new StringBuilder();
+        if (exception is not null)
+        {
+            logEvent.ErrorType = exception.GetType().FullName ?? exception.GetType().Name;
+            logEvent.Type = LogStateContract.TextPayload;
+            logEvent.Payload = errorContext is null && trail is null
+                ? exception.ToString()
+                : ComposeErrorPayload(errorContext, trail, exception);
+        }
+        else if (errorContext is not null && trail is null)
+        {
+            // Context alone: nothing to interleave it with, so send it as the JSON it is.
+            logEvent.Type = LogStateContract.JsonPayload;
+            logEvent.Payload = errorContext;
+        }
+        else if (trail is not null)
+        {
+            logEvent.Type = LogStateContract.TextPayload;
+            logEvent.Payload = ComposeErrorPayload(errorContext, trail, exception: null);
+        }
+    }
 
-        builder.AppendLine(ContextBanner);
-        builder.AppendLine(errorContext);
-        builder.AppendLine();
-        builder.AppendLine(ExceptionBanner);
-        builder.Append(exception.ToString());
+    private static string ComposeErrorPayload(string? errorContext, ReleasedTrail? trail, Exception? exception)
+    {
+        var exceptionText = exception?.ToString();
+        var builder = new StringBuilder(
+            (errorContext?.Length ?? 0) + (trail is null ? 0 : RetroTrails.EstimateLength(trail)) + (exceptionText?.Length ?? 0) + 128);
+
+        if (errorContext is not null)
+        {
+            builder.AppendLine(ContextBanner);
+            builder.Append(errorContext);
+        }
+
+        if (trail is not null)
+        {
+            if (builder.Length > 0)
+                builder.AppendLine().AppendLine();
+            RetroTrails.AppendTo(builder, trail);
+        }
+
+        if (exceptionText is not null)
+        {
+            if (builder.Length > 0)
+                builder.AppendLine().AppendLine();
+            builder.AppendLine(ExceptionBanner);
+            builder.Append(exceptionText);
+        }
 
         return builder.ToString();
     }

@@ -118,6 +118,24 @@ public class WatchSwitchSourceTests
         source.Lookup("MyApp.Services").Level.ShouldBe(LogLevel.Warning);
     }
 
+    [Fact]
+    public async Task UpdateAsync_ReadsRetro_AndAServerWithoutItMeansOff()
+    {
+        // As Watch Server writes it, and as one that predates the flag does.
+        var handler = new MockHttpHandler();
+        handler.RespondWith(HttpStatusCode.OK, new StringContent(
+            """{"Switches":[{"Pattern":"Orders","Tag":"","Level":3,"Color":0,"Retro":true},{"Pattern":"Billing","Tag":"","Level":3,"Color":0}],"ProbeKey":null}""",
+            System.Text.Encoding.UTF8, "application/json"));
+
+        var source = new WatchSwitchSource(CreateClient(handler), "test");
+
+        await source.UpdateAsync();
+
+        source.Lookup("Orders.Service").Retro.ShouldBeTrue();
+        source.Lookup("Billing.Service").Retro.ShouldBeFalse();
+        source.GateFor("Orders.Service").ShouldBe(new SwitchGate(LogLevel.Warning, Retro: true));
+    }
+
     [Theory]
     [InlineData(0, LogLevel.Trace)]
     [InlineData(5, LogLevel.Critical)]

@@ -209,7 +209,55 @@ public class AddWatchTests
     }
 
     [Fact]
-    public async Task AddWatch_SendsTheRetroTrail_OnlyWhenTheUnitOfWorkLogsAnError()
+    public void SwitchFilter_WithRetro_PassesDebug_ToWatchOnly_InsideAnyActivity()
+    {
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.Warning);
+        switches.WhenMatched("Orders", "", LogLevel.Warning, Color.White, retro: true);
+        var other = new LevelCapture();
+
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.AddWatch(CreateClient(new MockHttpHandler()), switches, new WatchDestination("http://localhost/D"), new WatchOptions(), ownsDependencies: false);
+            b.AddProvider(other);
+        });
+        var orders = factory.CreateLogger("Orders.Service");
+        var billing = factory.CreateLogger("Billing.Service");
+
+        orders.IsEnabled(LogLevel.Debug).ShouldBeFalse();   // no Activity: nothing to hold a trail
+
+        using (new Activity("request").Start())
+        {
+            orders.IsEnabled(LogLevel.Debug).ShouldBeTrue();
+            orders.IsEnabled(LogLevel.Trace).ShouldBeFalse();
+            billing.IsEnabled(LogLevel.Debug).ShouldBeFalse();   // its switch has no Retro
+
+            orders.LogDebug("kept by Watch only");
+        }
+
+        other.Levels.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void SwitchFilter_NeverPassesDebugForRetro_AtNone()
+    {
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.None);
+        switches.WhenMatched("Orders", "", LogLevel.None, Color.White, retro: true);
+
+        var factory = BuildFactory(switches);
+
+        using (new Activity("marked request").Start())
+        {
+            RetroLogging.Begin();
+
+            factory.CreateLogger("Orders.Service").IsEnabled(LogLevel.Debug).ShouldBeFalse();    // switch Retro, at None
+            factory.CreateLogger("Billing.Service").IsEnabled(LogLevel.Debug).ShouldBeFalse();   // a code mark, at None
+        }
+    }
+
+    [Fact]
+    public async Task AddWatch_SendsTheTrail_InTheErrorsPayload_OnlyWhenTheUnitOfWorkLogsAnError()
     {
         var delivered = new List<LogEvent>();
         var handler = new MockHttpHandler();
@@ -227,6 +275,7 @@ public class AddWatchTests
 
         var switches = new SwitchSource();
         switches.WhenNotMatched(LogLevel.Warning);
+        switches.WhenMatched("Orders", "", LogLevel.Warning, Color.White, retro: true);
         var options = new WatchOptions { FlushInterval = TimeSpan.FromMilliseconds(20) };
 
         using (var factory = LoggerFactory.Create(b =>
@@ -235,26 +284,34 @@ public class AddWatchTests
             var logger = factory.CreateLogger("Orders.Service");
 
             using (new Activity("succeeds").Start())
-            {
-                RetroLogging.Begin();
                 logger.LogDebug("quiet step");
-            }
 
             using (new Activity("fails").Start())
             {
-                RetroLogging.Begin();
-                logger.LogDebug("step one");
-                logger.LogDebug("step two");
-                logger.LogObject(new { Secret = "Trace is never kept" });
+                using (logger.EnterMethod("PlaceOrder"))
+                {
+                    logger.Inspect("subtotal", 30);
+                    logger.LogSql("Query", "select * from orders");
+                    logger.LogObject(new { Secret = "Trace is never kept" });
+                }
+
                 logger.LogError("boom");
             }
         }
 
         lock (delivered)
         {
-            delivered.Select(e => e.Title).ShouldBe(["step one", "step two", "boom"]);
-            delivered[0].Tag.ShouldBe("Retro");
-            delivered[2].Tag.ShouldBeEmpty();
+            var error = delivered.ShouldHaveSingleItem();
+            error.Title.ShouldBe("boom");
+            error.Tag.ShouldBeEmpty();
+            error.Payload.ShouldStartWith("--- Trail (4 lines) ---");
+            error.Payload.ShouldContain("Service  Entering PlaceOrder");
+            error.Payload.ShouldContain("Service    subtotal = 30");
+            error.Payload.ShouldContain("Service    Query");
+            error.Payload.ShouldContain("Service  Exiting PlaceOrder");
+            error.Payload.ShouldNotContain("select * from orders");
+            error.Payload.ShouldNotContain("Secret");
+            error.Payload.ShouldNotContain("quiet step");
         }
     }
 

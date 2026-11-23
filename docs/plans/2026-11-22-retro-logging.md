@@ -126,6 +126,9 @@ category at Warning; a second, unscoped provider does not receive the Debug even
 
 ## 3. The processor (Watch)
 
+> **Superseded** by `2026-11-23-retro-trail-in-error-payload.md`: the trail now goes in the Error's payload, not as
+> separate events tagged `Retro`.
+
 New internal type `RetroBuffers`, owned by `WatchLoggerProcessor`. `Post` decides per event, on the calling
 thread:
 

@@ -31,4 +31,10 @@ public class SwitchDto
     /// Gets or sets the ARGB color value.
     /// </summary>
     public int Color { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the switch trails Debug for retro logging. A Watch Server that predates
+    /// the flag sends none: false.
+    /// </summary>
+    public bool Retro { get; set; }
 }
