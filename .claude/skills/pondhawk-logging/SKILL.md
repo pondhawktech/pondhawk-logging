@@ -85,7 +85,8 @@ foreach (var hold in stale)
   and group the rest into one guarded anonymous object.
 - **Log an object whole, not property by property.** One `LogObject(nameof(request), request)` replaces a row of
   `Inspect(nameof(request.X), request.X)` calls. If the object holds a secret, mark that property `[Sensitive]`
-  (section 8) — do not fall back to picking properties with `Inspect`.
+  (section 8) — do not fall back to picking properties with `Inspect`. The one exception: a service whose
+  requests carry credentials never logs a request whole (section 8).
 - **Several loose values: one anonymous object, not several `Inspect` calls.** Group the values that explain one
   step into `new { … }` and log it with `LogObject`. Guard it (section 9): the object is built before the call.
 - Use `nameof(x)` as the name or title, so it follows a rename. Where `nameof` gives an ambiguous name, use a
@@ -378,6 +379,10 @@ How to keep them out:
 - On a positional record, target the property: `record Redeem(Guid AccountUid, [property: Sensitive] string Pin)`.
 - **An entity in your own codebase** that holds personal data gets `[Sensitive]` on those properties, like any
   other type.
+- **A service whose requests carry credentials** (an identity server, an authentication or payment gateway):
+  never log a request whole, `[Sensitive]` or not. Its requests are full of passwords, codes and tokens, and one
+  missed attribute writes a credential to the log. `Inspect` the identifiers the story needs instead (realm,
+  user uid, client id). The same holds for any object in such a service whose type carries a credential.
 - Only when you cannot change the type (a generated type, another library's type), log a guarded projection of
   the members that are not secret (section 9) instead of the whole object.
 - `[Sensitive]` applies only to `LogObject` and the context of `*WithContext`. `Inspect`, `LogJson` and a
@@ -491,7 +496,7 @@ public async Task<IResult> Handle(ThingRequest request, CancellationToken ct)
 - [ ] The method opens `using var log = logger.EnterMethod();` and logs through `log`.
 - [ ] Each step has a banner and `LogDebug("Attempting to …")` before it runs, with no holes.
 - [ ] Key inputs and step results are logged with `Inspect` (one scalar) or `LogObject` (objects), named with `nameof`.
-- [ ] An object is logged whole, with `[Sensitive]` on its secrets — not as a row of `Inspect` calls on its properties.
+- [ ] An object is logged whole, with `[Sensitive]` on its secrets — not as a row of `Inspect` calls on its properties. In a service whose requests carry credentials, no request is logged whole: only its identifiers, with `Inspect`.
 - [ ] Several loose values are one guarded anonymous object, not several `Inspect` calls.
 - [ ] A loop's step line is written once before the loop; each item is logged with `LogObject`.
 - [ ] Each normal early exit has a Debug line that says why.
