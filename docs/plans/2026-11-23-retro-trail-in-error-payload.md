@@ -1,5 +1,8 @@
 # Retro trail in the error payload, and a per-switch Retro flag
 
+Status: **IMPLEMENTED** — 2026-11-23 (`feat/retro-trail-in-error-payload`). Changes from the plan during
+implementation are marked *Implemented:*.
+
 Supersedes the delivery in `2026-11-22-retro-logging.md` §3 (separate `Retro`-tagged events) and its decision
 "No switch or Watch Server change". The marker (§1), the AspNetCore opt-in and the Watch-only filter (§2) stay.
 
@@ -60,6 +63,8 @@ is one `Activity.Current` read — no walk.
 
 - **Holder** = `RetroContract.MarkedActivity` ?? (switch `Retro` ? outermost local `Activity` : none). None: drop
   (the filter already let it through; this only happens when the switch changed between `IsEnabled` and `Post`).
+  *Implemented:* with no holder the event is sent live, as before. Dropping it broke the processor used without the
+  switch filter (the public constructor with `AddZLoggerLogProcessor`), where Debug below the switch was always sent.
 - **Keep a line, not a `LogEvent`.** `RetroTrails` holds `TrailLine(long Timestamp, string Category, int Nesting,
   string Text)`: `Stopwatch.GetTimestamp()`, the last category segment, the nesting delta, the title (payload
   content dropped, as today). Smaller than a `LogEvent`, and nothing is converted that is not kept.
@@ -123,6 +128,9 @@ whichever carries a trail):
 - **Through the API:** `EnterMethod`, `Inspect`, `LogSql` (title only), `LogObject` (absent) in the trail.
 - **Benchmark:** `RetroLoggingBenchmarks` gains "switch Retro, succeeds" and "switch Retro, fails"; the "fails"
   numbers drop, since one event goes out instead of 23.
+  *Implemented* (short job): "Marked, fails" 31.2 µs → 10.1 µs. Allocation went **up**, 10.1 KB → 12.5 KB: the one
+  payload string, its builder and its serialization cost more than 24 small events did. Sizing the builder once
+  saved about 150 B; the rest was not pursued.
 
 ## 7. Documentation
 

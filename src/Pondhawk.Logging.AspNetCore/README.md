@@ -263,9 +263,10 @@ services the request calls.
 
 ## Retro logging
 
-An endpoint that does important work can opt into **retro logging**: each request to it keeps the Debug events
-its switch would drop, and sends them only if the request logs an Error — so the failure arrives with how far the
-request got.
+An endpoint that does important work can opt into **retro logging**: each request to it keeps the Debug lines its
+switches would drop, in every category it logs through, and the next Error it logs carries the last of them in its
+payload — so the failure arrives with how far the request got. (A Watch switch with `Retro` does the same for one
+area of the code, in every request, with no code change.)
 
 ```csharp
 app.MapPost("/orders", PlaceOrder).WithRetroLogging();   // minimal APIs
@@ -276,7 +277,7 @@ public IActionResult Refund(int id) { … }
 
 `UseDiagnosticsEnrichment` marks the request's `Activity` when its endpoint carries `RetroLoggingAttribute`, so
 it must run after routing (it already runs after authentication). Events logged before it — the monitor's
-"Begin" line, routing, authentication — are not kept. The trail is sent by any Error inside the request: an
+"Begin" line, routing, authentication — are not kept. The trail goes with any Error inside the request: an
 exception handler's, the application's, or the monitor's End line with `EndLevelByOutcome` on. A provider that
 honours the mark does the rest (the Watch provider does; see its README). Like the probe, the mark is a custom
 property (`Pondhawk.RetroLogging`), so this package references neither the provider nor the API.

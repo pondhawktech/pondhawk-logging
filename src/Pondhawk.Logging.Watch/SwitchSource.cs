@@ -35,9 +35,9 @@ public class SwitchSource : IDisposable
     private bool _disposed;
     private Switch _defaultSwitch = new() { Level = LogLevel.Error, Color = Color.LightGray };
 
-    // Each category's level as Lookup last answered it. Replaced (never cleared) after every change that can alter
+    // Each category's gate as Lookup last answered it. Replaced (never cleared) after every change that can alter
     // a lookup, so a reader that took the old one before the change only ever adds to a cache nobody reads again.
-    private ConcurrentDictionary<string, LogLevel> _levels = NewLevelCache();
+    private ConcurrentDictionary<string, SwitchGate> _gates = NewGateCache();
 
     /// <summary>
     /// Gets the current version number. Incremented after each Update() and each change of
@@ -85,7 +85,8 @@ public class SwitchSource : IDisposable
                 Pattern = s.Pattern,
                 Color = s.Color,
                 Level = s.Level,
-                Tag = s.Tag
+                Tag = s.Tag,
+                Retro = s.Retro,
             }).ToList();
         }
     }
@@ -135,14 +136,27 @@ public class SwitchSource : IDisposable
     /// <param name="level">The minimum log level.</param>
     /// <param name="color">The color for matched categories.</param>
     /// <returns>This source for fluent chaining.</returns>
-    public SwitchSource WhenMatched(string pattern, string tag, LogLevel level, Color color)
+    public SwitchSource WhenMatched(string pattern, string tag, LogLevel level, Color color) =>
+        WhenMatched(pattern, tag, level, color, retro: false);
+
+    /// <summary>
+    /// Adds or updates a switch for the specified pattern, with or without retro logging.
+    /// </summary>
+    /// <param name="pattern">The pattern to match.</param>
+    /// <param name="tag">An optional tag.</param>
+    /// <param name="level">The minimum log level.</param>
+    /// <param name="color">The color for matched categories.</param>
+    /// <param name="retro">Whether Debug below <paramref name="level"/> is kept as a trail for the next error (<see cref="Switch.Retro"/>).</param>
+    /// <returns>This source for fluent chaining.</returns>
+    public SwitchSource WhenMatched(string pattern, string tag, LogLevel level, Color color, bool retro)
     {
         var switches = Switches.Select(p => new SwitchDef
         {
             Pattern = p.Value.Pattern,
             Tag = p.Value.Tag,
             Level = p.Value.Level,
-            Color = p.Value.Color
+            Color = p.Value.Color,
+            Retro = p.Value.Retro,
         }).ToList();
 
         var sw = new SwitchDef
@@ -150,7 +164,8 @@ public class SwitchSource : IDisposable
             Pattern = pattern,
             Tag = tag,
             Level = level,
-            Color = color
+            Color = color,
+            Retro = retro,
         };
 
         switches.Add(sw);
@@ -198,23 +213,25 @@ public class SwitchSource : IDisposable
     }
 
     /// <summary>
-    /// The level of the switch <see cref="Lookup"/> finds for <paramref name="category"/>, cached per category: the
-    /// switch filter asks this on every <see cref="ILogger.IsEnabled"/>, so it must not take the lock each time.
+    /// The level and <see cref="Switch.Retro"/> of the switch <see cref="Lookup"/> finds for <paramref name="category"/>,
+    /// cached per category: the switch filter asks this on every <see cref="ILogger.IsEnabled"/>, so it must not take
+    /// the lock each time.
     /// </summary>
     /// <remarks>
     /// The cache is dropped after <see cref="Update"/> and after <see cref="DefaultSwitch"/> is set. A subclass whose
     /// <see cref="Lookup"/> answers from anything else must call <see cref="Update"/> (or set
     /// <see cref="DefaultSwitch"/>) when that changes.
     /// </remarks>
-    internal LogLevel LevelFor(string category)
+    internal SwitchGate GateFor(string category)
     {
-        var levels = Volatile.Read(ref _levels);
-        if (levels.TryGetValue(category, out var level))
-            return level;
+        var gates = Volatile.Read(ref _gates);
+        if (gates.TryGetValue(category, out var gate))
+            return gate;
 
-        level = Lookup(category).Level;
-        levels.TryAdd(category, level);
-        return level;
+        var sw = Lookup(category);
+        gate = new SwitchGate(sw.Level, sw.Retro);
+        gates.TryAdd(category, gate);
+        return gate;
     }
 
     /// <summary>
@@ -281,6 +298,7 @@ public class SwitchSource : IDisposable
                 Tag = def.Tag,
                 Color = def.Color,
                 Level = def.Level,
+                Retro = def.Retro,
             };
 
             var key = def.Pattern;
@@ -306,15 +324,15 @@ public class SwitchSource : IDisposable
         Changed();
     }
 
-    // Drops the level cache and increments Version. Runs after the change is in place, so a reader that takes the
+    // Drops the gate cache and increments Version. Runs after the change is in place, so a reader that takes the
     // new cache also sees the new switches.
     private void Changed()
     {
-        Volatile.Write(ref _levels, NewLevelCache());
+        Volatile.Write(ref _gates, NewGateCache());
         Interlocked.Increment(ref _version);
     }
 
-    private static ConcurrentDictionary<string, LogLevel> NewLevelCache() => new(StringComparer.Ordinal);
+    private static ConcurrentDictionary<string, SwitchGate> NewGateCache() => new(StringComparer.Ordinal);
 
     /// <summary>
     /// Finds the switch with the longest matching pattern.

@@ -1,6 +1,7 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Diagnostics;
 using System.Net.Http;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -116,17 +117,8 @@ public static class WatchLoggingBuilderExtensions
         // true, so the composite logger's IsEnabled — the one the call site checks before formatting —
         // reflects this filter, giving switch-dropped categories a zero-work short-circuit.
         builder.SetMinimumLevel(LogLevel.Trace);
-        // A probed request passes at every level whatever its switch says. A unit of work marked for retro logging
-        // passes at Debug, to Watch only: the processor keeps those events and sends them only if an Error follows.
-        // Each mark is read only when the switch would drop the event, so a process that sets none pays nothing.
         // One global rule, not one scoped to Watch, so an application's category rules keep the precedence they had.
-        builder.AddFilter((provider, category, level) =>
-            string.IsNullOrWhiteSpace(category)
-            || level >= switches.LevelFor(category)
-            || (level < LogLevel.None && ProbeContract.IsActive)
-            || (level == LogLevel.Debug
-                && string.Equals(provider, WatchProviderName, StringComparison.Ordinal)
-                && RetroContract.IsActive));
+        builder.AddFilter((provider, category, level) => IsEnabled(switches, provider, category, level));
 
         // The key a probe token is checked against comes with the switches. It goes to the ASP.NET Core
         // diagnostics as a keyed delegate of built-in types, so neither package needs a type from the other.
@@ -148,6 +140,27 @@ public static class WatchLoggingBuilderExtensions
                 new ZLoggerOptions()));
 
         return builder;
+    }
+
+    /// <summary>
+    /// The switch filter. A probed request passes at every level whatever its switch says. Debug for retro logging
+    /// passes to Watch only — the processor keeps it as a trail and sends its last lines with an Error, if one follows
+    /// — in a unit of work marked for it, or in any <see cref="Activity"/> when the switch has <see cref="Switch.Retro"/>;
+    /// never when the switch is <see cref="LogLevel.None"/>. Each is read only when the switch would drop the event,
+    /// so a process that uses neither pays nothing more.
+    /// </summary>
+    private static bool IsEnabled(SwitchSource switches, string? provider, string? category, LogLevel level)
+    {
+        if (string.IsNullOrWhiteSpace(category))
+            return true;
+
+        var gate = switches.GateFor(category);
+        return level >= gate.Level
+               || (level < LogLevel.None && ProbeContract.IsActive)
+               || (level == LogLevel.Debug
+                   && gate.Level != LogLevel.None
+                   && string.Equals(provider, WatchProviderName, StringComparison.Ordinal)
+                   && (gate.Retro ? Activity.Current is not null : RetroContract.IsActive));
     }
 
     // The name Microsoft.Extensions.Logging passes a filter for the provider: its type's full name.

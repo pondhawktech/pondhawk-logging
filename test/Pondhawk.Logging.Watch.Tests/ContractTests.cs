@@ -49,8 +49,6 @@ public class ContractTests
     [Fact]
     public void ARetroMarkTheApiBegins_IsSeen()
     {
-        RetroContract.Tag.ShouldBe(RetroLogging.Tag);
-
         using (new Activity("marked").Start())
         {
             RetroContract.IsActive.ShouldBeFalse();

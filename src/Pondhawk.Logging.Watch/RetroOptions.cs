@@ -11,10 +11,10 @@ namespace Pondhawk.Logging.Watch;
 public class RetroOptions
 {
     /// <summary>
-    /// Gets or sets how many events are kept per unit of work. The oldest is dropped first, so the events nearest the
-    /// error stay. Default 100; clamped to 1–10,000.
+    /// Gets or sets how many Debug lines a trail keeps per unit of work. The oldest is dropped first, so the lines nearest
+    /// the error stay. Default 20; clamped to 1–10,000.
     /// </summary>
-    public int MaxEventsPerUnit { get; set; } = 100;
+    public int MaxEventsPerUnit { get; set; } = 20;
 
     /// <summary>Not used: a trail lives on its unit of work's <see cref="System.Diagnostics.Activity"/>, so there is no table to cap.</summary>
     [Obsolete("Not used since 5.0.2: a trail lives on its unit of work's Activity, so there is no table to cap.")]

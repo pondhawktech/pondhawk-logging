@@ -264,7 +264,8 @@ public class WatchSwitchSource : SwitchSource, IAsyncDisposable
             Pattern = s.Pattern,
             Tag = s.Tag,
             Level = (LogLevel)Math.Clamp(s.Level, (int)LogLevel.Trace, (int)LogLevel.None),
-            Color = Color.FromArgb(s.Color)
+            Color = Color.FromArgb(s.Color),
+            Retro = s.Retro,
         }).ToList();
 
         Update(defs);

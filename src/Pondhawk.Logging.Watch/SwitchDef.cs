@@ -48,4 +48,10 @@ public class SwitchDef
     /// Gets or sets the color for log events matching this switch.
     /// </summary>
     public Color Color { get; set; } = Color.LightGray;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Debug the switch drops is kept as a trail, and its last lines attached to the next Error or
+    /// Critical in the same unit of work (retro logging). Never at <see cref="LogLevel.None"/>.
+    /// </summary>
+    public bool Retro { get; set; }
 }

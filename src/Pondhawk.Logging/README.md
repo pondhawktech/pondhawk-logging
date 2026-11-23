@@ -84,8 +84,8 @@ background job. Neither package references this one: they set and read the same 
 ## Retro logging
 
 `RetroLogging` marks the current unit of work for retro logging. A provider that honours it (the Watch provider
-does) keeps the Debug events its switch would drop and sends them only if the unit of work logs an Error, so a
-failure arrives with the trail that led to it and a success adds nothing. `RetroLogging.Begin()` marks the
+does) keeps the Debug lines its switch would drop and attaches the last of them to the next Error the unit of work
+logs, so a failure arrives with the trail that led to it and a success adds nothing. `RetroLogging.Begin()` marks the
 current `Activity`, as `DiagnosticProbe.Begin()` does. An ASP.NET Core endpoint opts in with `WithRetroLogging()`
 or `[RetroLogging]` (`Pondhawk.Logging.AspNetCore`); other work, such as a background job, calls `Begin()` in its
 own `Activity`:
@@ -102,8 +102,8 @@ when the trail is discarded:
   `LogXml`, `LogYaml` and `LogText` — not their content.
 - **Not kept:** Trace, so `LogObject` at its default level serializes nothing. `LogObject(LogLevel.Debug, …)`
   does serialize: avoid it in code that is marked.
-- Kept events are sent with the tag `Retro`. The trail is a bonus, not a guarantee: the provider caps it and
-  drops what does not fit.
+- The trail is a bonus, not a guarantee: the provider caps it and drops what does not fit. (The Watch provider
+  puts it in the Error's payload; `RetroLogging.Tag` is no longer used by it.)
 
 ## Acquiring loggers
 

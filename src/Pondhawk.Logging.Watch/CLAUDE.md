@@ -161,26 +161,36 @@ floor buys back formatting cost.
 
 ## Retro logging
 
-A unit of work marked for retro logging (`RetroContract.IsActive`: the `Activity` property `Pondhawk.RetroLogging`,
-set by `RetroLogging.Begin()` or by the AspNetCore enrichment for an endpoint with `WithRetroLogging()`) keeps the
-Debug events its switch would drop, and sends them before its first Error.
+Debug a switch drops is kept as a trail, and its last lines go in the payload of the next Error or Critical in the
+same unit of work. On for a unit of work marked in code (`RetroContract.IsActive`: the `Activity` property
+`Pondhawk.RetroLogging`, set by `RetroLogging.Begin()` or by the AspNetCore enrichment for an endpoint with
+`WithRetroLogging()`), and for the categories of a switch with `Retro` (`SwitchDto.Retro` from Watch Server, or
+`WhenMatched(…, retro: true)`). Plan: `docs/plans/2026-11-23-retro-trail-in-error-payload.md`.
 
-- **The filter** is the same global rule, taking the provider name: Debug passes for a marked unit of work only
-  when the provider is `WatchLoggerProvider` (Watch's own subclass of `ZLoggerLogProcessorLoggerProvider`, which
-  `AddWatch` registers). A provider-scoped rule was rejected: it would outrank the application's category rules
+- **The filter** is the same global rule, taking the provider name: Debug passes only to `WatchLoggerProvider`
+  (Watch's own subclass of `ZLoggerLogProcessorLoggerProvider`, which `AddWatch` registers), never when the switch is
+  `None`, and only in a marked unit of work or — for a switch with `Retro` — inside any `Activity`.
+  `SwitchSource.GateFor` gives the filter the switch's level and `Retro` (`SwitchGate`) from a per-category cache,
+  dropped on every change. A provider-scoped rule was rejected: it would outrank the application's category rules
   for Watch, which today take precedence over the switch filter.
-- **The processor**: in `Post`, a Debug event below its switch, not probed, in a marked unit of work goes to
-  `RetroTrails` (payload content cleared, tag `Retro`), not the channel. The trail is a custom property
-  (`Pondhawk.RetroLogging.Trail`, Watch's own) on the marked `Activity` (`RetroContract.MarkedActivity`), so it is
-  collected with the unit of work. An Error or Critical event queues the marked Activity's trail first.
-- **Limit** (`WatchOptions.Retro`): `MaxEventsPerUnit` 100 (ring). Drops count in `RetroDroppedEventCount`.
-  Nothing in `RetroTrails` throws. 5.0.1 kept trails in a table by correlation id (`MaxUnits` 256, `IdleTimeout`
-  2 min, both now obsolete): finished requests' trails lived to gen 2 and filled the table, so under load most
-  requests kept nothing.
+- **Collection** (`Post`): a Debug event below its switch, not probed, switch not `None`, becomes a `TrailLine`
+  (timestamp, the category's last segment, the nesting delta, the title cut at 500 characters — never the payload
+  content) in `RetroTrails`, not the channel. The holder is the marked `Activity` (`RetroContract.MarkedActivity`),
+  else for a switch with `Retro` the outermost local one (`RetroTrails.Outermost`). The trail is a custom property
+  on it (`Pondhawk.RetroLogging.Trail`, Watch's own), so it is collected with the unit of work. With no holder the
+  event is sent as it always was (the processor used without the filter).
+- **Delivery**: an Error or Critical releases the trail of its mark and of its outermost `Activity`, merged in time
+  order, and `AttachDetail` writes it into the single payload slot: Context, Trail, Exception, as text; a context
+  alone stays JSON only without a trail. An event with its own payload keeps it; its trail is discarded. Released
+  trails are cleared, so a second error carries only the lines since the first. `RetroTrails.AppendTo` writes the
+  block (offsets from the first line; two spaces per nesting depth, an exit at its enter's depth, never below 0).
+- **Limit** (`WatchOptions.Retro`): `MaxEventsPerUnit` 20 lines (ring; 100 before 5.1). Drops count in
+  `RetroDroppedEventCount`, and the block's header says how many. Nothing in `RetroTrails` throws. 5.0.1 kept
+  trails in a table by correlation id (`MaxUnits` 256, `IdleTimeout` 2 min, both now obsolete); 5.0.2 sent the trail
+  as separate events tagged `Retro`.
 - **Cost** is measured by `benchmarks/Pondhawk.Logging.Benchmarks` (`RetroLoggingBenchmarks`); the results are in
   the README.
-- **Trace is never let through**, so `LogObject` at its default level serializes nothing. Kept events are Debug,
-  so they are not held through an outage.
+- **Trace is never let through**, so `LogObject` at its default level serializes nothing.
 
 ## Extension Method Reference
 
@@ -277,9 +287,11 @@ src/Pondhawk.Logging.Watch/
   # Provider + configuration
   WatchLoggerProcessor.cs               # ZLogger IAsyncLogProcessor: channel batching + circuit breaker + HTTP
   WatchLoggerProvider.cs                # Watch's own provider type (the filter tells Watch apart by it)
-  RetroTrails.cs                        # Kept Debug trails, on the marked Activity
+  RetroTrails.cs                        # Debug trails on the unit of work's Activity; the payload's Trail block
+  TrailLine.cs                          # One kept Debug line
+  ReleasedTrail.cs                      # A trail as an Error releases it
   RetroOptions.cs                       # Limits on retro logging
-  RetroContract.cs                      # Copy of the retro-logging Activity property and tag
+  RetroContract.cs                      # Copy of the retro-logging Activity property
   WatchLoggingBuilderExtensions.cs      # ILoggingBuilder.AddWatch (registers the switch filter + processor)
   WatchDestination.cs                   # The server + domain delivered to; rebindable, or initially unbound
   WatchOptions.cs                       # Options for AddWatch
