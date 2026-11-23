@@ -9,11 +9,11 @@ namespace Pondhawk.Logging.Tests.Support;
 /// An <see cref="ILoggerFactory"/> that records the categories requested and hands out one shared
 /// <see cref="CollectingLogger"/>, for asserting logger acquisition.
 /// </summary>
-internal sealed class RecordingLoggerFactory : ILoggerFactory
+internal sealed class RecordingLoggerFactory(LogLevel minimumLevel = LogLevel.Trace) : ILoggerFactory
 {
     public List<string> Categories { get; } = [];
 
-    public CollectingLogger Logger { get; } = new();
+    public CollectingLogger Logger { get; } = new(minimumLevel);
 
     public ILogger CreateLogger(string categoryName)
     {

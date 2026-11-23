@@ -1,7 +1,9 @@
 // Copyright (c) Pond Hawk Technologies Inc. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
+using System.Collections.Concurrent;
 using System.Threading;
+using Pondhawk.Logging.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging;
@@ -15,6 +17,18 @@ namespace Pondhawk.Logging;
 public static class LoggingFactoryLocator
 {
     private static ILoggerFactory? _factory;
+
+    // The logger for each type, and its inert method scope, from the factory set now. Replaced with the factory,
+    // so a reset never hands out a logger from the factory before it.
+    private static ConcurrentDictionary<Type, TypeLogger> _byType = new();
+
+    /// <summary>A type's logger and the method scope handed out when its entry is not logged.</summary>
+    internal sealed class TypeLogger(ILogger logger)
+    {
+        public ILogger Logger { get; } = logger;
+
+        public MethodLogger Inert { get; } = MethodLogger.Inert(logger);
+    }
 
     /// <summary>
     /// Sets the application logger factory. May be called <em>only once</em> — call it during logging
@@ -32,6 +46,29 @@ public static class LoggingFactoryLocator
             throw new InvalidOperationException(
                 "LoggingFactoryLocator.SetFactory has already been called; it may be set only once, during logging startup.");
         }
+
+        Volatile.Write(ref _byType, new ConcurrentDictionary<Type, TypeLogger>());
+    }
+
+    /// <summary>
+    /// The logger categorized to <paramref name="type"/>'s concise full name, created once per type: the factory's
+    /// <see cref="ILoggerFactory.CreateLogger"/> takes a lock on every call.
+    /// </summary>
+    internal static TypeLogger ForType(Type type)
+    {
+        var factory = GetFactory();
+        var byType = Volatile.Read(ref _byType);
+        if (byType.TryGetValue(type, out var cached))
+            return cached;
+
+        var created = new TypeLogger(factory.CreateLogger(type.GetConciseFullName()));
+
+        // Cache only if the factory is still the one the logger came from; a reset in between would otherwise
+        // leave a logger from the old factory in the new cache.
+        if (ReferenceEquals(Volatile.Read(ref _factory), factory))
+            return byType.GetOrAdd(type, created);
+
+        return created;
     }
 
     /// <summary>Gets the application logger factory set by <see cref="SetFactory"/>.</summary>
@@ -61,5 +98,9 @@ public static class LoggingFactoryLocator
     /// will tear down logging other fixtures are still using, which resetting the locator does not fix.
     /// </para>
     /// </remarks>
-    public static void ResetForTesting() => Interlocked.Exchange(ref _factory, null);
+    public static void ResetForTesting()
+    {
+        Interlocked.Exchange(ref _factory, null);
+        Volatile.Write(ref _byType, new ConcurrentDictionary<Type, TypeLogger>());
+    }
 }

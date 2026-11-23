@@ -82,6 +82,24 @@ public class MethodLoggerTests
     }
 
     [Fact]
+    public void EnterMethod_WhenNotEntered_ReturnsOneSharedScopePerLogger_ThatStillLogsToIt()
+    {
+        var inner = new CollectingLogger(LogLevel.Information);
+        var other = new CollectingLogger(LogLevel.Information);
+
+        var first = inner.EnterMethod();
+        first.Dispose();
+        var second = inner.EnterMethod();
+
+        second.ShouldBeSameAs(first);
+        other.EnterMethod().ShouldNotBeSameAs(first);
+
+        second.LogInformation("inside");
+        inner.Entries.ShouldHaveSingleItem().Message.ShouldBe("inside");
+        other.Entries.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void MethodLogger_DoubleDispose_LogsExitOnlyOnce()
     {
         var inner = new CollectingLogger();

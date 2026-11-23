@@ -3,7 +3,6 @@
 
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using Pondhawk.Logging.Utilities;
 
 namespace Pondhawk.Logging;
 
@@ -24,8 +23,7 @@ public static class ObjectLoggingExtensions
     {
         ArgumentNullException.ThrowIfNull(instance);
 
-        var category = instance.GetType().GetConciseFullName();
-        return LoggingFactoryLocator.GetFactory().CreateLogger(category);
+        return LoggingFactoryLocator.ForType(instance.GetType()).Logger;
     }
 
     /// <summary>
@@ -37,6 +35,9 @@ public static class ObjectLoggingExtensions
     /// <returns>A disposable <see cref="MethodLogger"/> that also implements <see cref="ILogger"/>.</returns>
     public static MethodLogger EnterMethod(this object instance, [CallerMemberName] string method = "")
     {
-        return instance.GetLogger().EnterMethod(method);
+        ArgumentNullException.ThrowIfNull(instance);
+
+        var type = LoggingFactoryLocator.ForType(instance.GetType());
+        return type.Logger.IsEnabled(MethodLogger.Level) ? type.Logger.EnterMethod(method) : type.Inert;
     }
 }

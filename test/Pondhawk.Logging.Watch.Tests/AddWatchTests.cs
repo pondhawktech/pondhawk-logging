@@ -161,6 +161,22 @@ public class AddWatchTests
     }
 
     [Fact]
+    public void SwitchFilter_ReactsToADefaultSwitchChange_AfterTheLevelWasCached()
+    {
+        var switches = new SwitchSource();
+        switches.WhenNotMatched(LogLevel.Warning);
+
+        var factory = BuildFactory(switches);
+        var logger = factory.CreateLogger("Svc.Thing");
+
+        logger.IsEnabled(LogLevel.Debug).ShouldBeFalse();   // caches Warning for Svc.Thing
+
+        switches.WhenNotMatched(LogLevel.Debug);             // no pattern changes, only the default
+
+        logger.IsEnabled(LogLevel.Debug).ShouldBeTrue();
+    }
+
+    [Fact]
     public void SwitchFilter_PassesDebug_ToWatchOnly_ForAUnitOfWorkMarkedForRetroLogging()
     {
         var switches = new SwitchSource();

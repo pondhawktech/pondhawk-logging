@@ -79,6 +79,50 @@ public class LoggingFactoryLocatorTests : IDisposable
         factory.Categories.ShouldContain("Pondhawk.Logging.Tests.LocatorSample");
         factory.Logger.Entries.ShouldContain(e => e.Message.StartsWith("Entering"));
     }
+
+    [Fact]
+    public void GetLogger_CreatesTheTypeLoggerOnce()
+    {
+        var factory = new RecordingLoggerFactory();
+        LoggingFactoryLocator.SetFactory(factory);
+
+        var sample = new LocatorSample();
+        sample.GetLogger();
+        sample.GetLogger();
+        using (sample.EnterMethod())
+        {
+        }
+
+        factory.Categories.ShouldBe(["Pondhawk.Logging.Tests.LocatorSample"]);
+    }
+
+    [Fact]
+    public void GetLogger_AfterReset_ComesFromTheNewFactory()
+    {
+        var first = new RecordingLoggerFactory();
+        LoggingFactoryLocator.SetFactory(first);
+        new LocatorSample().GetLogger().ShouldBeSameAs(first.Logger);
+
+        LoggingFactoryLocator.ResetForTesting();
+        var second = new RecordingLoggerFactory();
+        LoggingFactoryLocator.SetFactory(second);
+
+        new LocatorSample().GetLogger().ShouldBeSameAs(second.Logger);
+    }
+
+    [Fact]
+    public void EnterMethod_OnObject_WhenNotEntered_ReturnsTheSameScope_AndLogsNothing()
+    {
+        var factory = new RecordingLoggerFactory(Microsoft.Extensions.Logging.LogLevel.Information);
+        LoggingFactoryLocator.SetFactory(factory);
+
+        var sample = new LocatorSample();
+        var first = sample.EnterMethod();
+        first.Dispose();
+
+        sample.EnterMethod().ShouldBeSameAs(first);
+        factory.Logger.Entries.ShouldBeEmpty();
+    }
 }
 
 internal sealed class LocatorSample

@@ -39,16 +39,14 @@ public static class LoggingExtensions
     /// <returns>A disposable <see cref="MethodLogger"/> that also implements <see cref="ILogger"/>.</returns>
     public static MethodLogger EnterMethod(this ILogger logger, [CallerMemberName] string method = "")
     {
-        var entered = logger.IsEnabled(MethodLogger.Level);
+        if (!logger.IsEnabled(MethodLogger.Level))
+            return MethodLogger.Inert(logger);
 
-        if (entered)
-        {
-            var properties = new KeyValuePair<string, object?>[] { new(LogPropertyNames.Nesting, 1) };
-            var state = new LogState("Entering " + method, properties);
-            logger.Log(MethodLogger.Level, default, state, null, LogState.Formatter);
-        }
+        var properties = new KeyValuePair<string, object?>[] { new(LogPropertyNames.Nesting, 1) };
+        var state = new LogState("Entering " + method, properties);
+        logger.Log(MethodLogger.Level, default, state, null, LogState.Formatter);
 
-        return new MethodLogger(logger, method, entered);
+        return MethodLogger.Entered(logger, method);
     }
 
     /// <summary>
@@ -188,6 +186,17 @@ public static class LoggingExtensions
     /// <param name="name">The display name for the value.</param>
     /// <param name="value">The value to log.</param>
     public static void Inspect(this ILogger logger, string name, object? value)
+        => Inspect<object?>(logger, name, value);
+
+    /// <summary>
+    /// Logs a name/value pair as <c>"{Name} = {Value}"</c> at <see cref="LogLevel.Debug"/>. Generic, so a value type
+    /// is boxed only when the event is logged.
+    /// </summary>
+    /// <typeparam name="T">The type of the value.</typeparam>
+    /// <param name="logger">The logger.</param>
+    /// <param name="name">The display name for the value.</param>
+    /// <param name="value">The value to log.</param>
+    public static void Inspect<T>(this ILogger logger, string name, T value)
     {
         if (!logger.IsEnabled(LogLevel.Debug))
             return;

@@ -33,16 +33,30 @@ public class SwitchSource : IDisposable
     private long _version;
     private readonly ReaderWriterLockSlim _switchLock = new();
     private bool _disposed;
+    private Switch _defaultSwitch = new() { Level = LogLevel.Error, Color = Color.LightGray };
+
+    // Each category's level as Lookup last answered it. Replaced (never cleared) after every change that can alter
+    // a lookup, so a reader that took the old one before the change only ever adds to a cache nobody reads again.
+    private ConcurrentDictionary<string, LogLevel> _levels = NewLevelCache();
 
     /// <summary>
-    /// Gets the current version number. Incremented after each Update().
+    /// Gets the current version number. Incremented after each Update() and each change of
+    /// <see cref="DefaultSwitch"/>.
     /// </summary>
     public long Version => Volatile.Read(ref _version);
 
     /// <summary>
     /// Gets or sets the default switch used when no pattern matches.
     /// </summary>
-    public Switch DefaultSwitch { get; set; } = new Switch { Level = LogLevel.Error, Color = Color.LightGray };
+    public Switch DefaultSwitch
+    {
+        get => Volatile.Read(ref _defaultSwitch);
+        set
+        {
+            Volatile.Write(ref _defaultSwitch, value);
+            Changed();
+        }
+    }
 
     /// <summary>
     /// Gets or sets the debug switch for explicit debug logging.
@@ -184,6 +198,26 @@ public class SwitchSource : IDisposable
     }
 
     /// <summary>
+    /// The level of the switch <see cref="Lookup"/> finds for <paramref name="category"/>, cached per category: the
+    /// switch filter asks this on every <see cref="ILogger.IsEnabled"/>, so it must not take the lock each time.
+    /// </summary>
+    /// <remarks>
+    /// The cache is dropped after <see cref="Update"/> and after <see cref="DefaultSwitch"/> is set. A subclass whose
+    /// <see cref="Lookup"/> answers from anything else must call <see cref="Update"/> (or set
+    /// <see cref="DefaultSwitch"/>) when that changes.
+    /// </remarks>
+    internal LogLevel LevelFor(string category)
+    {
+        var levels = Volatile.Read(ref _levels);
+        if (levels.TryGetValue(category, out var level))
+            return level;
+
+        level = Lookup(category).Level;
+        levels.TryAdd(category, level);
+        return level;
+    }
+
+    /// <summary>
     /// Looks up just the color for a given category.
     /// </summary>
     /// <param name="category">The logger category to match.</param>
@@ -268,10 +302,19 @@ public class SwitchSource : IDisposable
             _switchLock.ExitWriteLock();
         }
 
-        // Increment version AFTER releasing the lock
-        // This ensures readers see a complete, consistent state
+        // After releasing the lock, so readers see a complete, consistent state
+        Changed();
+    }
+
+    // Drops the level cache and increments Version. Runs after the change is in place, so a reader that takes the
+    // new cache also sees the new switches.
+    private void Changed()
+    {
+        Volatile.Write(ref _levels, NewLevelCache());
         Interlocked.Increment(ref _version);
     }
+
+    private static ConcurrentDictionary<string, LogLevel> NewLevelCache() => new(StringComparer.Ordinal);
 
     /// <summary>
     /// Finds the switch with the longest matching pattern.

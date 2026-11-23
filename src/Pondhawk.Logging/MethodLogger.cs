@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 
 namespace Pondhawk.Logging;
@@ -24,12 +25,31 @@ public sealed class MethodLogger : ILogger, IDisposable
     /// <summary>The level method entry and exit are logged at.</summary>
     internal const LogLevel Level = LogLevel.Debug;
 
-    internal MethodLogger(ILogger logger, string method, bool entered)
+    // One inert MethodLogger per inner logger, handed out whenever the entry is not logged. Weak on the logger, so
+    // a logger that goes away takes its inert instance with it.
+    private static readonly ConditionalWeakTable<ILogger, MethodLogger> InertByLogger = new();
+
+    private MethodLogger(ILogger logger, string method, bool entered)
     {
         _logger = logger;
         _method = method;
-        _startTimestamp = Stopwatch.GetTimestamp();
+        _startTimestamp = entered ? Stopwatch.GetTimestamp() : 0;
         _entered = entered;
+    }
+
+    /// <summary>A scope whose entry was logged: its exit is logged on dispose.</summary>
+    internal static MethodLogger Entered(ILogger logger, string method) => new(logger, method, entered: true);
+
+    /// <summary>
+    /// A scope whose entry was not logged: dispose does nothing, and the <see cref="ILogger"/> members still go to
+    /// <paramref name="logger"/>. Shared per logger, so a disabled <c>EnterMethod</c> allocates nothing.
+    /// </summary>
+    internal static MethodLogger Inert(ILogger logger)
+    {
+        if (InertByLogger.TryGetValue(logger, out var inert))
+            return inert;
+
+        return InertByLogger.GetValue(logger, static l => new MethodLogger(l, string.Empty, entered: false));
     }
 
     /// <summary>
@@ -40,20 +60,18 @@ public sealed class MethodLogger : ILogger, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed)
+        // An inert scope is shared, so it keeps no state of its own.
+        if (!_entered || _disposed)
             return;
 
         _disposed = true;
 
-        if (_entered)
-        {
-            var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
-            var elapsedMs = elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture);
-            var title = "Exiting " + _method + " (" + elapsedMs + "ms)";
-            var properties = new KeyValuePair<string, object?>[] { new(LogPropertyNames.Nesting, -1) };
-            var state = new LogState(title, properties);
-            _logger.Log(Level, default, state, null, LogState.Formatter);
-        }
+        var elapsed = Stopwatch.GetElapsedTime(_startTimestamp);
+        var elapsedMs = elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture);
+        var title = "Exiting " + _method + " (" + elapsedMs + "ms)";
+        var properties = new KeyValuePair<string, object?>[] { new(LogPropertyNames.Nesting, -1) };
+        var state = new LogState(title, properties);
+        _logger.Log(Level, default, state, null, LogState.Formatter);
     }
 
     /// <inheritdoc />
