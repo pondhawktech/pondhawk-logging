@@ -122,7 +122,7 @@ public static class WatchLoggingBuilderExtensions
         // One global rule, not one scoped to Watch, so an application's category rules keep the precedence they had.
         builder.AddFilter((provider, category, level) =>
             string.IsNullOrWhiteSpace(category)
-            || level >= switches.Lookup(category).Level
+            || level >= switches.LevelFor(category)
             || (level < LogLevel.None && ProbeContract.IsActive)
             || (level == LogLevel.Debug
                 && string.Equals(provider, WatchProviderName, StringComparison.Ordinal)

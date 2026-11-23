@@ -37,6 +37,31 @@ public class SwitchSourceTests
         source.GetDebugSwitch().Level.ShouldBe(LogLevel.Debug);
     }
 
+    [Fact]
+    public void SettingDefaultSwitch_IncrementsVersion()
+    {
+        var source = new SwitchSource();
+
+        source.WhenNotMatched(LogLevel.Debug);
+
+        source.Version.ShouldBe(1);
+    }
+
+    [Fact]
+    public void LevelFor_AnswersAsLookup_AndFollowsUpdates()
+    {
+        var source = new SwitchSource();
+        source.WhenNotMatched(LogLevel.Warning);
+
+        source.LevelFor("A.B").ShouldBe(LogLevel.Warning);
+
+        source.WhenMatched("A", LogLevel.Trace, Color.White);
+        source.LevelFor("A.B").ShouldBe(LogLevel.Trace);
+
+        source.Update([]);
+        source.LevelFor("A.B").ShouldBe(LogLevel.Warning);
+    }
+
     // --- WhenNotMatched ---
 
     [Fact]
