@@ -242,6 +242,43 @@ catch (StripeException ex)
 - The message is a **title, not a template**: holes are not filled. Put the values in the context object.
 - The context can be given without an exception: `log.ErrorWithContext(context, "Totals do not match")`.
 
+### Source-generated messages: `[LoggerMessage]`
+
+`[LoggerMessage]` (`Microsoft.Extensions.Logging`) declares a log message as a `partial` method, and a source
+generator writes its body at build time. The body checks `IsEnabled` first, takes typed parameters (no
+`object[]`, no boxing) and uses a template parsed once. A hole with no matching parameter, or the reverse, is a
+compiler error.
+
+```csharp
+internal sealed partial class TokenPruner(..., ILogger<TokenPruner> logger) : BackgroundService
+{
+    ...
+    PruneFailed(logger, realm, (int)Interval.TotalMinutes, failure);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Pruning expired tokens failed for realm {Realm} - retrying in {IntervalMinutes} minutes")]
+    private static partial void PruneFailed(ILogger logger, string realm, int intervalMinutes, Exception failure);
+}
+```
+
+**Use it for operator events; use direct calls for the Debug story.**
+
+- **May use `[LoggerMessage]`:** Information, Warning and Error events with a fixed template — the operator
+  events of sections 5 and 6 — and any event on a hot path. If a codebase already uses it for these, follow it.
+- **Do not use it for:**
+  - **Step lines and early-exit lines.** One declared method per "Attempting to …" line doubles the size of a
+    handler and moves the message away from the step it names. Write `log.LogDebug("Attempting to …")` at
+    the step.
+  - **`EnterMethod`, `Inspect`, `LogObject`, `LogJson` and the other payload calls.** It has no equivalent.
+  - **Rich failure state.** Use `ErrorWithContext` / `WarningWithContext`; `[LoggerMessage]` has no context
+    object, and more holes are not a substitute.
+- **The rules do not change.** The message still says what failed, which thing and what happens now (section 6).
+  The levels are those of section 5. Holes are named in PascalCase. A secret or personal value is never a
+  parameter, because a parameter is a hole.
+- Put the exception parameter last. The generator attaches it as the event's exception, not as a hole.
+- Declare the methods `private static partial` at the end of the class. The class must be `partial`.
+- Both styles can be used in one class: `[LoggerMessage]` for its operator events, direct calls and the
+  Pondhawk extensions for its Debug story.
+
 ## 7. Catch only to handle
 
 Log an exception **where it is handled**, once.
@@ -469,6 +506,7 @@ public async Task<IResult> Handle(ThingRequest request, CancellationToken ct)
 - [ ] A queue consumer: contention retry and stale message at Debug, dependency retry at Warning, last attempt and dead-letter at Error.
 - [ ] A typed client that throws for its caller logs Debug only; it never `LogJson`s a raw body that may hold personal data.
 - [ ] Entities in your own codebase carry `[Sensitive]` on personal data; projections only for types you cannot change.
+- [ ] `[LoggerMessage]` is used only for fixed-template Information, Warning and Error events (or hot paths), never for step lines or payloads; its messages follow section 6, and no parameter is a secret.
 - [ ] Each Warning and Error says what failed, which thing (named holes) and what happens now.
 - [ ] No `"{Message}", ex.Message`. No catch that only logs and rethrows.
 - [ ] Rich failure state goes in `ErrorWithContext` / `WarningWithContext`, not in a long message.
